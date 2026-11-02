@@ -259,3 +259,18 @@ def test_kickoff_is_converted_from_eastern_to_utc():
     assert weather.kickoff_utc("2025-09-07", "13:00") == pd.Timestamp("2025-09-07 17:00", tz="UTC")  # EDT
     assert weather.kickoff_utc("2025-12-07", "13:00") == pd.Timestamp("2025-12-07 18:00", tz="UTC")  # EST
     assert set(weather.STADIUMS) >= {"LA", "LAC", "LV", "NYG", "NYJ"}
+
+
+def test_ranking_metrics_perfect_reversed_and_noise():
+    from nflfp import backtest
+    rng = np.random.default_rng(3)
+    bt = pd.DataFrame({"week": np.repeat(np.arange(1, 9), 20), "act_rush": rng.normal(size=160)})
+    bt["act_rec"] = bt.act_rush
+    bt["mod_rush"], bt["own_rush"] = bt.act_rush * 5 + 1, -bt.act_rush            # same order / reversed
+    bt["mod_rec"], bt["own_rec"] = bt.act_rush, rng.normal(size=160)               # same order / pure noise
+    r = backtest.ranking(bt, n_boot=200)
+    assert r.loc[("rush", "model"), "pairwise"] == 1.0 and r.loc[("rush", "model"), "rank_corr"] == pytest.approx(1.0)
+    assert r.loc[("rush", "team avg"), "pairwise"] == 0.0 and r.loc[("rush", "team avg"), "rank_corr"] == pytest.approx(-1.0)
+    assert 0.4 < r.loc[("rec", "team avg"), "pairwise"] < 0.6                      # noise ~ coin flip
+    assert r.loc[("rec", "team avg"), "pair_lo"] < 0.5 < r.loc[("rec", "team avg"), "pair_hi"]
+    assert r.loc[("rush", "model"), "top_half"] == 1.0

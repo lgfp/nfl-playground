@@ -89,6 +89,46 @@ def summarize(bt: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out).T
 
 
+def _week_ranking_counts(pred: np.ndarray, act: np.ndarray) -> tuple[float, int, int, int, int]:
+    """For one week: (rank corr, concordant pairs, usable pairs, top-half hits, usable top-half calls)."""
+    rho = pd.Series(pred).rank().corr(pd.Series(act).rank())  # Spearman = Pearson on ranks
+    dp, da = np.sign(pred[:, None] - pred[None, :]), np.sign(act[:, None] - act[None, :])
+    pairs = (np.triu(np.ones((len(pred), len(pred))), 1) > 0) & (dp != 0) & (da != 0)
+    top, up = pred > np.median(pred), act > np.median(act)
+    calls = pred != np.median(pred)
+    return rho, int((dp[pairs] == da[pairs]).sum()), int(pairs.sum()), int((top[calls] == up[calls]).sum()), int(calls.sum())
+
+
+def _ratio_ci(num: np.ndarray, den: np.ndarray, n_boot: int, seed: int) -> tuple[float, float, float]:
+    """Pooled ratio with a 95% interval from resampling whole weeks (a week's games are not independent)."""
+    idx = np.random.default_rng(seed).integers(0, len(num), (n_boot, len(num)))
+    lo, hi = np.percentile(num[idx].sum(1) / den[idx].sum(1), [2.5, 97.5])
+    return num.sum() / den.sum(), lo, hi
+
+
+def ranking(bt: pd.DataFrame, min_games: int = 10, n_boot: int = 2000, seed: int = 0) -> pd.DataFrame:
+    """Directional accuracy: does a higher prediction mean a higher outcome, within the same week?
+
+    * rank_corr  - mean weekly Spearman correlation between prediction and outcome
+    * pairwise   - share of team-game pairs in the same week ordered correctly (50% = coin flip)
+    * top_half   - share of predictions on the right side of the week's median (50% = coin flip)
+    with 95% intervals from resampling weeks. The league average is constant within a week, so it
+    has no ranking and is left out; "team avg" ranks teams by their own average - the matchup-free baseline.
+    """
+    by = ["season", "week"] if "season" in bt else ["week"]
+    out = {}
+    for kind in ("rush", "rec"):
+        for label, col in (("model", "mod"), ("team avg", "own")):
+            rows = [_week_ranking_counts(w[f"{col}_{kind}"].to_numpy(float), w[f"act_{kind}"].to_numpy(float))
+                    for _, w in bt.groupby(by) if len(w) >= min_games]
+            rho, c, n, h, m = (np.array(x) for x in zip(*rows))
+            pw_, pw_lo, pw_hi = _ratio_ci(c, n, n_boot, seed)
+            th, th_lo, th_hi = _ratio_ci(h, m, n_boot, seed)
+            out[(kind, label)] = dict(rank_corr=np.nanmean(rho), pairwise=pw_, pair_lo=pw_lo, pair_hi=pw_hi,
+                                      top_half=th, top_lo=th_lo, top_hi=th_hi)
+    return pd.DataFrame(out).T
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m nflfp.backtest")
     ap.add_argument("--seasons", type=int, nargs="+", default=[2025, 2026])
@@ -122,6 +162,13 @@ def main() -> None:
     print(spread(bt).to_string())
     print("\nPrediction error (R2 > 0 means better than always guessing the mean):")
     print(summarize(bt).to_string())
+    print("\nDirection - within each week, is a higher prediction a higher outcome? (50% = coin flip; 95% CI by week)")
+    r = ranking(bt)
+    pct = lambda v: f"{v:.1%}"  # noqa: E731
+    show = pd.DataFrame({"rank_corr": r.rank_corr.map("{:.3f}".format),
+                         "pairs ordered right": [f"{pct(a_)} [{pct(b_)}, {pct(c_)}]" for a_, b_, c_ in zip(r.pairwise, r.pair_lo, r.pair_hi)],
+                         "top half beats bottom": [f"{pct(a_)} [{pct(b_)}, {pct(c_)}]" for a_, b_, c_ in zip(r.top_half, r.top_lo, r.top_hi)]})
+    print(show.to_string())
     if a.csv:
         bt.to_csv(a.csv, index=False)
 
