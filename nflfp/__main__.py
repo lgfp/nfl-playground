@@ -18,6 +18,7 @@ def main() -> None:
     ap.add_argument("--top", type=int, default=30, help="rows to print")
     ap.add_argument("--no-offense-adj", action="store_true", help="skip the opposing-offense-vs-average adjustment")
     ap.add_argument("--refresh", action="store_true", help="re-download data")
+    ap.add_argument("--teams", action="store_true", help="print team totals (rushing + receiving) instead of players")
     ap.add_argument("--csv", help="also write the full player projection to this CSV")
     a = ap.parse_args()
     pd.options.display.float_format = "{:.2f}".format
@@ -40,6 +41,11 @@ def main() -> None:
         print(f"Defense vs the {kind}, worst first (per game; adj = against an average offense):")
         print(model.defense_ranking(ratings, scoring, kind).to_string())
         print()
+
+    if a.teams:
+        print(f"Expected team rushing + receiving points, week {week} (ppr={a.ppr}):")
+        print(model.project_teams(ratings, matchups, scoring, not a.no_offense_adj).to_string())
+        return
 
     shares = model.usage_shares(pw, a.window)
     proj = model.project_players(ratings, shares, matchups, scoring, not a.no_offense_adj)

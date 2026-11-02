@@ -106,3 +106,12 @@ def test_defense_ranking_worst_first_and_separate_for_run_and_pass():
         assert list(t["rank"]) == list(range(1, len(t) + 1))
         assert t["adj_pts"].is_monotonic_decreasing
     assert list(run.index) != list(pas.index)
+
+
+def test_team_projection_matches_components():
+    tg, *_ = synthetic_games()
+    r = model.fit_ratings(tg)
+    s = model.Scoring()
+    t = model.project_teams(r, [("T0", "T1")], s).iloc[0]
+    rush, rec = model.points(model.team_expectation(r, "T0", "T1"), s)
+    assert t.total_pts == pytest.approx(rush + rec)

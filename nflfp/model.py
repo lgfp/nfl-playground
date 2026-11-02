@@ -191,6 +191,16 @@ def usage_shares(player_week: pd.DataFrame, window: int | None = None) -> pd.Dat
     return g.rename(columns={"cur_team": "team"}).fillna({"carry_share": 0.0, "target_share": 0.0, "attempt_share": 0.0})
 
 
+def project_teams(r: Ratings, matchups: list[tuple[str, str]], s: Scoring, use_offense_adj: bool = True) -> pd.DataFrame:
+    """Expected team rushing + receiving points (no player split; QB passing points excluded)."""
+    rows = []
+    for offense, defense in matchups:
+        rush, rec = points(team_expectation(r, offense, defense, use_offense_adj), s)
+        rows.append(dict(team=offense, opp=defense, rush_pts=rush, rec_pts=rec, total_pts=rush + rec))
+    out = pd.DataFrame(rows, columns=["team", "opp", "rush_pts", "rec_pts", "total_pts"])
+    return out.sort_values("total_pts", ascending=False).reset_index(drop=True)
+
+
 def project_players(
     r: Ratings, shares: pd.DataFrame, matchups: list[tuple[str, str]], s: Scoring, use_offense_adj: bool = True
 ) -> pd.DataFrame:
