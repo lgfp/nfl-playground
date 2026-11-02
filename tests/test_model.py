@@ -93,3 +93,16 @@ def test_starting_qb_gets_all_passing_share():
     ])
     sh = model.usage_shares(pw).set_index("player")
     assert sh.loc["S", "attempt_share"] == 1.0 and sh.loc["B", "attempt_share"] == 0.0
+
+
+def test_defense_ranking_worst_first_and_separate_for_run_and_pass():
+    tg, *_ = synthetic_games()
+    for c in ("rec_yds", "rec_tds", "receptions"):  # decouple pass from run
+        tg[c] = tg["rush_yds"][::-1].to_numpy()
+    r = model.fit_ratings(tg)
+    s = model.Scoring()
+    run, pas = (model.defense_ranking(r, s, k) for k in ("run", "pass"))
+    for t in (run, pas):
+        assert list(t["rank"]) == list(range(1, len(t) + 1))
+        assert t["adj_pts"].is_monotonic_decreasing
+    assert list(run.index) != list(pas.index)

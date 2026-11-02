@@ -36,8 +36,10 @@ def main() -> None:
 
     ratings = model.fit_ratings(model.team_games(pw))
     print(f"Season {a.season}: learned from weeks {int(pw['week'].min())}-{int(pw['week'].max())}, projecting week {week}\n")
-    print("Defenses (fantasy points allowed per game; adj = to an average offense), worst first:")
-    print(model.defense_table(ratings, scoring).to_string())
+    for kind in ("run", "pass"):
+        print(f"Defense vs the {kind}, worst first (per game; adj = against an average offense):")
+        print(model.defense_ranking(ratings, scoring, kind).to_string())
+        print()
 
     shares = model.usage_shares(pw, a.window)
     proj = model.project_players(ratings, shares, matchups, scoring, not a.no_offense_adj)

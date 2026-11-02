@@ -132,6 +132,23 @@ def defense_table(r: Ratings, s: Scoring) -> pd.DataFrame:
     return out.sort_values("adj_total_pts", ascending=False)
 
 
+def defense_ranking(r: Ratings, s: Scoring, kind: str) -> pd.DataFrame:
+    """Defenses ranked worst-first against the 'run' or the 'pass'.
+
+    Columns: raw per-game yards/TDs/points allowed, and the same adjusted to an average
+    offense (schedule-neutral). Ranked by adjusted fantasy points allowed.
+    """
+    yds, tds = ("rush_yds", "rush_tds") if kind == "run" else ("rec_yds", "rec_tds")
+    adj = r.dfn * r.mu
+    pts = (lambda c: points(c, s)[0]) if kind == "run" else (lambda c: points(c, s)[1])
+    out = pd.DataFrame({
+        "raw_yds": r.raw_allowed[yds], "raw_tds": r.raw_allowed[tds], "raw_pts": pts(r.raw_allowed),
+        "adj_yds": adj[yds], "adj_tds": adj[tds], "adj_pts": pts(adj),
+    }).sort_values("adj_pts", ascending=False)
+    out.insert(0, "rank", range(1, len(out) + 1))
+    return out
+
+
 def team_expectation(r: Ratings, offense: str, defense: str, use_offense_adj: bool = True) -> pd.Series:
     """Expected component totals for `offense` against `defense`."""
     f = r.mu * r.dfn.loc[defense]
