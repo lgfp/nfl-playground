@@ -172,3 +172,13 @@ def test_leave_one_out_holds_out_only_the_tested_week():
     future.loc[future.week == 6, ["rushing_yards", "receiving_yards"]] *= 1000
     after = backtest.walk_forward(future, s, min_week=1, leave_one_out=True)
     assert not np.allclose(base[base.week == 3].mod_rush.to_numpy(), after[after.week == 3].mod_rush.to_numpy())
+
+
+def test_neutral_component_is_league_average_and_others_unchanged():
+    tg, *_ = synthetic_games()
+    base = model.fit_ratings(tg)
+    neu = model.fit_ratings(tg, neutral=("rush_tds",))
+    assert (neu.off["rush_tds"] == 1).all() and (neu.dfn["rush_tds"] == 1).all()
+    pd.testing.assert_series_equal(neu.dfn["rush_yds"], base.dfn["rush_yds"])
+    exp = model.team_expectation(neu, "T0", "T1")
+    assert exp["rush_tds"] == pytest.approx(neu.mu["rush_tds"])

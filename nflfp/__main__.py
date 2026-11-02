@@ -20,6 +20,8 @@ def main() -> None:
     ap.add_argument("--refresh", action="store_true", help="re-download data")
     ap.add_argument("--teams", action="store_true", help="print team totals (rushing + receiving) instead of players")
     ap.add_argument("--sort-by", default="rush_pts", choices=["rush_pts", "rec_pts", "total_pts"], help="sort for --teams (default rush_pts)")
+    ap.add_argument("--neutral", nargs="*", default=[], choices=list(model.COMPONENTS),
+                    help="components to leave at the league average (no opponent adjustment), e.g. rush_tds")
     ap.add_argument("--csv", help="also write the full player projection to this CSV")
     a = ap.parse_args()
     pd.options.display.float_format = "{:.2f}".format
@@ -36,7 +38,7 @@ def main() -> None:
     if unknown:
         raise SystemExit(f"Teams in schedule but not in stats (abbreviation mismatch?): {sorted(unknown)}")
 
-    ratings = model.fit_ratings(model.team_games(pw))
+    ratings = model.fit_ratings(model.team_games(pw), neutral=tuple(a.neutral))
     print(f"Season {a.season}: learned from weeks {int(pw['week'].min())}-{int(pw['week'].max())}, projecting week {week}\n")
     for kind in ("run", "pass"):
         print(f"Defense vs the {kind}, worst first (per game; adj = against an average offense):")

@@ -25,7 +25,8 @@ def team_points(pw: pd.DataFrame, s: model.Scoring) -> pd.DataFrame:
     return tg
 
 
-def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4, leave_one_out: bool = False) -> pd.DataFrame:
+def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4, leave_one_out: bool = False, **fit_kwargs
+) -> pd.DataFrame:
     """One row per (team, week) with actual, model, league-avg and team-avg predictions.
 
     leave_one_out=False trains on weeks before the tested week; True on every other week.
@@ -37,7 +38,7 @@ def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4, leave_on
             continue
         cur = games[games["week"] == w]
         past = games[games["week"] != w] if leave_one_out else games[games["week"] < w]
-        r = model.fit_ratings(past)
+        r = model.fit_ratings(past, **fit_kwargs)
         for g in cur.itertuples():
             if g.off_team not in r.off.index or g.def_team not in r.dfn.index:
                 continue
@@ -80,6 +81,7 @@ def main() -> None:
     ap.add_argument("--seasons", type=int, nargs="+", default=[2025, 2026])
     ap.add_argument("--forward", action="store_true", help="train on earlier weeks only (default: all other weeks)")
     ap.add_argument("--min-week", type=int, help="first week to predict (default 1, or 4 with --forward)")
+    ap.add_argument("--neutral", nargs="*", default=[], choices=list(model.COMPONENTS), help="components pinned to league average")
     ap.add_argument("--ppr", type=float, default=0.5)
     ap.add_argument("--csv", help="write per team-game predictions here")
     a = ap.parse_args()
@@ -90,7 +92,7 @@ def main() -> None:
 
     frames = []
     for season in a.seasons:
-        bt = walk_forward(data.load_player_weeks(season), s, min_week, leave_one_out=not a.forward)
+        bt = walk_forward(data.load_player_weeks(season), s, min_week, leave_one_out=not a.forward, neutral=tuple(a.neutral))
         bt.insert(0, "season", season)
         frames.append(bt)
     bt = pd.concat(frames, ignore_index=True)

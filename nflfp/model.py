@@ -87,7 +87,10 @@ def _fit_component(o, d, y, n_teams, shrink, max_iter, tol):
     return mu, off, dfn
 
 
-def fit_ratings(tg: pd.DataFrame, shrink: dict | None = None, max_iter: int = 1000, tol: float = 1e-10) -> Ratings:
+def fit_ratings(
+    tg: pd.DataFrame, shrink: dict | None = None, max_iter: int = 1000, tol: float = 1e-10, neutral: tuple = ()
+) -> Ratings:
+    """`neutral` components are pinned to the league average (all factors 1.0): no opponent adjustment."""
     shrink = {**DEFAULT_SHRINK, **(shrink or {})}
     teams = sorted(set(tg["off_team"]) | set(tg["def_team"]))
     ix = {t: i for i, t in enumerate(teams)}
@@ -96,6 +99,8 @@ def fit_ratings(tg: pd.DataFrame, shrink: dict | None = None, max_iter: int = 10
     mus, offs, dfns = {}, {}, {}
     for c in COMPONENTS:
         mus[c], offs[c], dfns[c] = _fit_component(o, d, tg[c].to_numpy(float), len(teams), shrink[c], max_iter, tol)
+        if c in neutral:
+            offs[c] = dfns[c] = np.ones(len(teams))
     raw = tg.groupby("def_team")[list(COMPONENTS)].mean().reindex(teams)
     return Ratings(
         mu=pd.Series(mus),
