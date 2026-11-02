@@ -31,3 +31,10 @@ schedule (posted close to game day). `python -m nflfp.backtest --use-lines` repr
 Default scoring: 0.1/yd rushing/receiving, 0.04/yd passing, 6 per rushing/receiving TD, 4 per passing TD, 0.5 PPR (all overridable, see `--help`).
 
 Limitations: no injuries/game script/home field, usage shares are volume-only (not efficiency), no kickers/DST.
+
+## Weather
+
+`uv run python analysis/weather_regression.py [season]` regresses game-level rushing/receiving points (and the model's
+residuals) on roof, temperature and wind from the nflverse schedule. Rain and snow are not in that file; for them
+use [Open-Meteo](https://open-meteo.com) (free, no key, forecast + historical archive) - the sandbox must allow
+`api.open-meteo.com` and `archive-api.open-meteo.com`.
