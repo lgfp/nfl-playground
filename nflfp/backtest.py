@@ -25,20 +25,24 @@ def team_points(pw: pd.DataFrame, s: model.Scoring) -> pd.DataFrame:
     return tg
 
 
-def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4, leave_one_out: bool = False, **fit_kwargs
+def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4, leave_one_out: bool = False,
+    prior: pd.DataFrame | None = None, prior_weight: float = 0.0, **fit_kwargs
 ) -> pd.DataFrame:
     """One row per (team, week) with actual, model, league-avg and team-avg predictions.
 
     leave_one_out=False trains on weeks before the tested week; True on every other week.
+    `prior` (another season's player-weeks) is added to the training set at `prior_weight` per game.
     """
     games = team_points(pw, s)
+    prior_games = team_points(prior, s).assign(weight=prior_weight) if prior is not None and prior_weight > 0 else None
     rows = []
     for w in sorted(games["week"].unique()):
         if w < min_week:
             continue
         cur = games[games["week"] == w]
         past = games[games["week"] != w] if leave_one_out else games[games["week"] < w]
-        r = model.fit_ratings(past, **fit_kwargs)
+        train = past if prior_games is None else pd.concat([past.assign(weight=1.0), prior_games], ignore_index=True)
+        r = model.fit_ratings(train, **fit_kwargs)
         for g in cur.itertuples():
             if g.off_team not in r.off.index or g.def_team not in r.dfn.index:
                 continue
@@ -82,6 +86,7 @@ def main() -> None:
     ap.add_argument("--forward", action="store_true", help="train on earlier weeks only (default: all other weeks)")
     ap.add_argument("--min-week", type=int, help="first week to predict (default 1, or 4 with --forward)")
     ap.add_argument("--neutral", nargs="*", default=None, choices=list(model.COMPONENTS), help="components pinned to league average (default: rush_tds; no values = none)")
+    ap.add_argument("--prior-weight", type=float, default=0.0, help="also train on the previous season at this per-game weight (default 0)")
     ap.add_argument("--ppr", type=float, default=0.5)
     ap.add_argument("--csv", help="write per team-game predictions here")
     a = ap.parse_args()
@@ -92,7 +97,9 @@ def main() -> None:
 
     frames = []
     for season in a.seasons:
-        bt = walk_forward(data.load_player_weeks(season), s, min_week, leave_one_out=not a.forward, neutral=None if a.neutral is None else tuple(a.neutral))
+        bt = walk_forward(data.load_player_weeks(season), s, min_week, leave_one_out=not a.forward,
+                          prior=data.load_player_weeks(season - 1) if a.prior_weight > 0 else None,
+                          prior_weight=a.prior_weight, neutral=None if a.neutral is None else tuple(a.neutral))
         bt.insert(0, "season", season)
         frames.append(bt)
     bt = pd.concat(frames, ignore_index=True)

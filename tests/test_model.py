@@ -182,3 +182,15 @@ def test_neutral_component_is_league_average_and_others_unchanged():
     pd.testing.assert_series_equal(neu.dfn["rush_yds"], base.dfn["rush_yds"])
     exp = model.team_expectation(neu, "T0", "T1")
     assert exp["rush_tds"] == pytest.approx(neu.mu["rush_tds"])
+
+
+def test_weights_act_like_repeated_games_and_default_is_unweighted():
+    tg, *_ = synthetic_games()
+    noshr = {c: 0.0 for c in model.COMPONENTS}
+    pd.testing.assert_frame_equal(model.fit_ratings(tg, noshr).dfn, model.fit_ratings(tg.assign(weight=1.0), noshr).dfn)
+    # weight 2 on a game == listing it twice
+    doubled = pd.concat([tg, tg.iloc[:5]], ignore_index=True)
+    weighted = tg.assign(weight=1.0)
+    weighted.loc[weighted.index[:5], "weight"] = 2.0
+    pd.testing.assert_frame_equal(model.fit_ratings(doubled, noshr).dfn, model.fit_ratings(weighted, noshr).dfn)
+    pd.testing.assert_frame_equal(model.fit_ratings(doubled, noshr).raw_allowed, model.fit_ratings(weighted, noshr).raw_allowed)

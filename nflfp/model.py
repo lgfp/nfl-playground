@@ -64,25 +64,25 @@ def team_games(player_week: pd.DataFrame) -> pd.DataFrame:
     return tg.rename(columns={"team": "off_team", "opponent_team": "def_team"})
 
 
-def _mean_ratio(idx, ratios, counts, shrink):
-    """Per-team mean of game ratios with `shrink` pseudo-games of 1.0; teams with no games get 1.0."""
-    total = np.bincount(idx, ratios, len(counts)) + shrink
+def _mean_ratio(idx, ratios, counts, shrink, w):
+    """Per-team weighted mean of game ratios with `shrink` pseudo-games of 1.0; no games -> 1.0."""
+    total = np.bincount(idx, ratios * w, len(counts)) + shrink
     n = counts + shrink
     return np.divide(total, n, out=np.ones(len(counts)), where=n > 0)
 
 
-def _fit_component(o, d, y, n_teams, shrink, max_iter, tol):
-    mu = y.mean()
+def _fit_component(o, d, y, w, n_teams, shrink, max_iter, tol):
+    mu = np.average(y, weights=w)
     off = np.ones(n_teams)
     dfn = np.ones(n_teams)
     if mu <= 0:
         return mu, off, dfn
-    n_o = np.bincount(o, minlength=n_teams)
-    n_d = np.bincount(d, minlength=n_teams)
+    n_o = np.bincount(o, weights=w, minlength=n_teams)
+    n_d = np.bincount(d, weights=w, minlength=n_teams)
     for _ in range(max_iter):
-        new_dfn = _mean_ratio(d, y / (mu * off[o]), n_d, shrink)
+        new_dfn = _mean_ratio(d, y / (mu * off[o]), n_d, shrink, w)
         new_dfn /= new_dfn.mean()
-        new_off = _mean_ratio(o, y / (mu * new_dfn[d]), n_o, shrink)
+        new_off = _mean_ratio(o, y / (mu * new_dfn[d]), n_o, shrink, w)
         new_off /= new_off.mean()
         delta = max(np.abs(new_dfn - dfn).max(), np.abs(new_off - off).max())
         dfn, off = new_dfn, new_off
@@ -104,12 +104,14 @@ def fit_ratings(
     ix = {t: i for i, t in enumerate(teams)}
     o = tg["off_team"].map(ix).to_numpy()
     d = tg["def_team"].map(ix).to_numpy()
+    w = tg["weight"].to_numpy(float) if "weight" in tg else np.ones(len(tg))  # optional per-game weight
     mus, offs, dfns = {}, {}, {}
     for c in COMPONENTS:
-        mus[c], offs[c], dfns[c] = _fit_component(o, d, tg[c].to_numpy(float), len(teams), shrink[c], max_iter, tol)
+        mus[c], offs[c], dfns[c] = _fit_component(o, d, tg[c].to_numpy(float), w, len(teams), shrink[c], max_iter, tol)
         if c in neutral:
             offs[c] = dfns[c] = np.ones(len(teams))
-    raw = tg.groupby("def_team")[list(COMPONENTS)].mean().reindex(teams)
+    wt = tg[list(COMPONENTS)].mul(w, axis=0).groupby(tg["def_team"]).sum()
+    raw = wt.div(pd.Series(w, index=tg.index).groupby(tg["def_team"]).sum(), axis=0).reindex(teams)
     return Ratings(
         mu=pd.Series(mus),
         off=pd.DataFrame(offs, index=teams),
