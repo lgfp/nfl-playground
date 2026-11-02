@@ -16,7 +16,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from . import data, lines as linemod, model
+from . import data, lines as linemod, model, weather
 
 
 def team_points(pw: pd.DataFrame, s: model.Scoring) -> pd.DataFrame:
@@ -27,7 +27,7 @@ def team_points(pw: pd.DataFrame, s: model.Scoring) -> pd.DataFrame:
 
 def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4, leave_one_out: bool = False,
     prior: pd.DataFrame | None = None, prior_weight: float = 0.0, prior_side: str = "both",
-    lines: pd.DataFrame | None = None, use_lines: tuple = linemod.FEATURES, **fit_kwargs
+    lines: pd.DataFrame | None = None, use_lines: tuple = linemod.FEATURES, use_wind: bool = True, **fit_kwargs
 ) -> pd.DataFrame:
     """One row per (team, week) with actual, model, league-avg and team-avg predictions.
 
@@ -49,7 +49,7 @@ def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4, leave_on
         past = games[games["week"] != w] if leave_one_out else games[games["week"] < w]
         train = past if prior_games is None else pd.concat([past.assign(weight=1.0, def_weight=1.0), prior_games], ignore_index=True)
         r = model.fit_ratings(train, **fit_kwargs)
-        adj = linemod.fit_line_adjustment(past, r, s, lines, use_lines) if lines is not None else None
+        adj = linemod.fit_line_adjustment(past, r, s, lines, use_lines, use_wind) if lines is not None else None
         for g in cur.itertuples():
             if g.off_team not in r.off.index or g.def_team not in r.dfn.index:
                 continue
@@ -137,8 +137,10 @@ def main() -> None:
     ap.add_argument("--neutral", nargs="*", default=None, choices=list(model.COMPONENTS), help="components pinned to league average (default: rush_tds; no values = none)")
     ap.add_argument("--prior-weight", type=float, default=0.0, help="also train on the previous season at this per-game weight (default 0)")
     ap.add_argument("--prior-side", choices=["both", "offense", "defense"], default="both", help="which factors the prior season informs")
+    ap.add_argument("--no-lines", action="store_true", help="turn off the betting-line + wind adjustment (on by default)")
     ap.add_argument("--use-lines", nargs="*", choices=list(linemod.FEATURES), default=None,
-                    help="add the betting-line adjustment (no values = spread and total)")
+                    help="which betting-line features to use (default: spread and total)")
+    ap.add_argument("--no-wind", action="store_true", help="leave wind out of the receiving adjustment")
     ap.add_argument("--ppr", type=float, default=0.5)
     ap.add_argument("--csv", help="write per team-game predictions here")
     a = ap.parse_args()
@@ -147,17 +149,30 @@ def main() -> None:
     min_week = a.min_week or (4 if a.forward else 1)
     how = "earlier weeks only" if a.forward else "all other weeks of the season"
 
+    use_lines = tuple(a.use_lines) if a.use_lines else linemod.FEATURES
+    use_wind = not a.no_lines and not a.no_wind
     frames = []
     for season in a.seasons:
+        lines = None
+        if not a.no_lines:
+            sched = data.load_schedule(season)
+            wx = None
+            if use_wind:
+                try:
+                    wx = weather.game_weather(sched)
+                except Exception as e:  # network/rate limit: carry on without wind rather than fail
+                    print(f"warning: no weather for {season} ({e}); wind left out", flush=True)
+                    use_wind = False
+            lines = linemod.team_lines(sched, wx)
         bt = walk_forward(data.load_player_weeks(season), s, min_week, leave_one_out=not a.forward,
                           prior=data.load_player_weeks(season - 1) if a.prior_weight > 0 else None,
                           prior_weight=a.prior_weight, prior_side=a.prior_side,
-                          lines=linemod.team_lines(data.load_schedule(season)) if a.use_lines is not None else None,
-                          use_lines=tuple(a.use_lines) if a.use_lines else linemod.FEATURES, neutral=None if a.neutral is None else tuple(a.neutral))
+                          lines=lines, use_lines=use_lines, use_wind=use_wind and lines is not None and "wind5" in lines.columns, neutral=None if a.neutral is None else tuple(a.neutral))
         bt.insert(0, "season", season)
         frames.append(bt)
     bt = pd.concat(frames, ignore_index=True)
-    print(f"{len(bt)} team-games, seasons {a.seasons}, predicting weeks >= {min_week}, trained on {how}\n")
+    adj_txt = "no betting-line/wind adjustment" if a.no_lines else ("betting lines" + (" + wind" if use_wind else ""))
+    print(f"{len(bt)} team-games, seasons {a.seasons}, predicting weeks >= {min_week}, trained on {how}; {adj_txt}\n")
     print("Actual outcomes (points per team-game):")
     print(spread(bt).to_string())
     print("\nPrediction error (R2 > 0 means better than always guessing the mean):")

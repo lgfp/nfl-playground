@@ -23,10 +23,13 @@ Data comes from [nflverse](https://github.com/nflverse/nflverse-data) (weekly pl
 4. **Player split**: rushing points by share of team carries, receiving points by share of targets,
    all QB passing points to the starter (most pass attempts in the team's latest game) (shares use the player's current team; `--window N` for recent usage).
 
-Optional: `--use-lines [fav] [total]` adds a small betting-line adjustment (point spread and/or game total) to the
-team rushing/receiving points, fitted on the season's earlier games (`nflfp/lines.py`). In backtests it lifted R2
-from ~0.04 to ~0.06 (rushing) and ~0.13 to ~0.16 (receiving), so it is off by default. Needs lines in the
-schedule (posted close to game day). `python -m nflfp.backtest --use-lines` reproduces the comparison.
+Game environment (on by default): the team rushing/receiving points get a small linear correction fitted on the
+season's earlier games (`nflfp/lines.py`): point spread and game total for both, plus game-time wind for receiving
+and QB passing (0 in domes). Backtests: R2 ~0.04 -> ~0.06 (rushing) and ~0.13 -> ~0.17 (receiving). Almost all of that is
+the lines; wind adds little once the total is in the model (Vegas totals already price in wind). If a line is not posted
+yet or there is no wind forecast, that team is left unadjusted and the run says so. `--no-lines` turns it all off,
+`--no-wind` drops wind, `--use-lines fav` (or `total`) picks line features. Wind comes from Open-Meteo (see Weather);
+the backtest uses observed wind, so it is a little optimistic compared with a forecast.
 
 Default scoring: 0.1/yd rushing/receiving, 0.04/yd passing, 6 per rushing/receiving TD, 4 per passing TD, 0.5 PPR (all overridable, see `--help`).
 

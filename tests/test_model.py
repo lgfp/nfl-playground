@@ -238,8 +238,7 @@ def test_line_adjustment_recovers_a_planted_effect_and_floors_at_zero():
     assert adj.coef["rec"][1] == pytest.approx(base.coef["rec"][1], abs=1e-9)
     team = lines.team.iloc[0]
     assert adj.adjust(int(lines.week.iloc[0]), team, 0.0, 0.0)[0] >= 0.0
-    with pytest.raises(SystemExit):
-        adj.adjust(99, team, 1.0, 1.0)
+    assert adj.adjust(99, team, 1.0, 1.0) == (1.0, 1.0) and (99, team) in adj.missing  # no line: unadjusted, recorded
 
 
 def test_line_adjust_hook_changes_team_projection_only_when_given():
@@ -274,3 +273,45 @@ def test_ranking_metrics_perfect_reversed_and_noise():
     assert 0.4 < r.loc[("rec", "team avg"), "pairwise"] < 0.6                      # noise ~ coin flip
     assert r.loc[("rec", "team avg"), "pair_lo"] < 0.5 < r.loc[("rec", "team avg"), "pair_hi"]
     assert r.loc[("rush", "model"), "top_half"] == 1.0
+
+
+def _wind_fixture(effect=-2.0):
+    """Lines fixture + a wind column, with a planted wind effect on receiving points."""
+    linemod, tg, r, lines = _lines_fixture()
+    rng = np.random.default_rng(5)
+    lines = lines.assign(wind5=rng.uniform(0, 3, len(lines)))
+    d = tg.merge(lines, left_on=["week", "off_team"], right_on=["week", "team"])
+    return linemod, tg, r, lines, d, effect
+
+
+def test_wind_adjustment_recovers_planted_receiving_effect_and_not_rushing():
+    linemod, tg, r, lines, d, effect = _wind_fixture()
+    s = model.Scoring()
+    base = linemod.fit_line_adjustment(d[tg.columns], r, s, lines, ("fav",), wind=True)
+    planted = d[tg.columns].copy()
+    planted["rec_yds"] = d["rec_yds"] + (effect / s.yard) * d["wind5"]     # effect points per 5 mph
+    adj = linemod.fit_line_adjustment(planted, r, s, lines, ("fav",), wind=True)
+    i = adj.use["rec"].index("wind") + 1
+    assert adj.coef["rec"][i] - base.coef["rec"][i] == pytest.approx(effect, abs=1e-9)
+    assert "wind" not in adj.use["rush"]                                    # wind is for passing only
+
+
+def test_wind_unknown_is_neutral_and_indoor_wind_is_zero():
+    linemod, tg, r, lines, d, _ = _wind_fixture()
+    s = model.Scoring()
+    adj = linemod.fit_line_adjustment(d[tg.columns], r, s, lines, ("fav", "total"), wind=True)
+    wk, team = int(lines.week.iloc[0]), lines.team.iloc[0]
+    with_wind = adj.adjust(wk, team, 10.0, 40.0)
+    unknown = linemod.LineAdjustment(**{**adj.__dict__, "lines": adj.lines.assign(wind5=np.nan), "missing": set(), "missing_wind": set()})
+    neutral = unknown.adjust(wk, team, 10.0, 40.0)
+    avg_wind = linemod.LineAdjustment(**{**adj.__dict__, "lines": adj.lines.assign(wind5=adj.wind_mean), "missing": set(), "missing_wind": set()})
+    assert neutral == pytest.approx(avg_wind.adjust(wk, team, 10.0, 40.0))  # unknown wind == average wind
+    assert (wk, team) in unknown.missing_wind and with_wind[1] != neutral[1]
+    sched = pd.DataFrame([dict(game_id="g1", week=1, home_team="H", away_team="A", spread_line=1.0, total_line=44.0, roof="dome"),
+                          dict(game_id="g2", week=2, home_team="H", away_team="A", spread_line=1.0, total_line=44.0, roof=np.nan),
+                          dict(game_id="g3", week=3, home_team="X", away_team="Y", spread_line=1.0, total_line=44.0, roof="outdoors")])
+    wx = pd.DataFrame({"wind_mph": [20.0, 20.0, 20.0]}, index=pd.Index(["g1", "g2", "g3"], name="game_id"))
+    t = linemod.team_lines(sched, wx)
+    assert (t[t.week == 1].wind5 == 0).all()       # dome: no wind
+    assert (t[t.week == 2].wind5 == 0).all()       # unknown roof -> the home team's usual roof (dome)
+    assert (t[t.week == 3].wind5 == 4.0).all()     # outdoors: 20 mph = 4 units

@@ -1,11 +1,16 @@
 """Game-time weather from Open-Meteo (free, no API key; non-commercial use).
 
-History: archive-api.open-meteo.com (ERA5 reanalysis). Forecast: api.open-meteo.com (16 days).
-Weather is taken at the home team's stadium for the 3 hours after kickoff.
-Neutral-site games are skipped (the schedule lists them under the nominal home stadium).
+History: archive-api.open-meteo.com (ERA5 reanalysis, ~5 days behind).
+Recent + upcoming: api.open-meteo.com (`past_days` + 16-day forecast).
+Weather is taken at the home team's stadium for the 3 hours after kickoff. Neutral-site games are skipped
+(the schedule lists them under the nominal home stadium).
+
+The free tier limits by IP and the sandbox shares one, so requests are batched (all stadiums in ONE call),
+retried with backoff, and cached.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import urllib.error
@@ -19,6 +24,8 @@ CACHE = Path(".cache/weather")
 ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
 FORECAST = "https://api.open-meteo.com/v1/forecast"
 VARS = "temperature_2m,precipitation,snowfall,wind_speed_10m"
+FORECAST_TTL_HOURS = 3     # forecasts change; re-use a cached one for this long
+RECENT_DAYS = 8            # games newer than this come from the forecast API (the archive lags ~5 days)
 
 # home stadium (lat, lon), nflverse team codes
 STADIUMS = {
@@ -33,38 +40,63 @@ STADIUMS = {
 }
 
 
-def _get(url: str, cache_name: str | None, refresh: bool = False) -> dict:
+def _get(url: str, cache_name: str | None = None, ttl_hours: float | None = None, refresh: bool = False):
+    """GET json with retries (connection resets and 429s are intermittent through the shared proxy)."""
     path = CACHE / cache_name if cache_name else None
     if path and path.exists() and not refresh:
-        return json.loads(path.read_text())
-    for attempt in range(5):  # the connection through the proxy is occasionally reset: retry with backoff
+        age_h = (time.time() - path.stat().st_mtime) / 3600
+        if ttl_hours is None or age_h < ttl_hours:
+            return json.loads(path.read_text())
+    for attempt in range(6):
         try:
             with urllib.request.urlopen(url, timeout=60) as r:
                 text = r.read().decode()
             break
         except (urllib.error.URLError, OSError):
-            if attempt == 4:
+            if attempt == 5:
                 raise
-            time.sleep(2 ** (attempt + 1))
+            time.sleep(min(2 ** (attempt + 1), 20))
     if path:
         CACHE.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
     return json.loads(text)
 
 
-def hourly(team: str, start: str, end: str, forecast: bool = False, refresh: bool = False) -> pd.DataFrame:
-    """Hourly UTC weather at `team`'s stadium: temp_f, precip_mm (in the hour before), snow_cm, wind_mph."""
-    lat, lon = STADIUMS[team]
-    q = dict(latitude=lat, longitude=lon, hourly=VARS, timezone="UTC", temperature_unit="fahrenheit", wind_speed_unit="mph")
-    if forecast:  # forecasts change, so never cache them
-        d = _get(f"{FORECAST}?{urllib.parse.urlencode({**q, 'forecast_days': 16})}", None)
-    else:
-        d = _get(f"{ARCHIVE}?{urllib.parse.urlencode({**q, 'start_date': start, 'end_date': end})}",
-                 f"{team}_{start}_{end}.json", refresh)
-    h = d["hourly"]
-    df = pd.DataFrame({"time": pd.to_datetime(h["time"], utc=True), "temp_f": h["temperature_2m"],
-                       "precip_mm": h["precipitation"], "snow_cm": h["snowfall"], "wind_mph": h["wind_speed_10m"]})
-    return df.set_index("time")
+def _frames(teams: list[str], payload) -> dict[str, pd.DataFrame]:
+    """Open-Meteo returns a list for several locations, a dict for one."""
+    locs = payload if isinstance(payload, list) else [payload]
+    out = {}
+    for team, loc in zip(teams, locs):
+        h = loc["hourly"]
+        out[team] = pd.DataFrame({"time": pd.to_datetime(h["time"], utc=True), "temp_f": h["temperature_2m"],
+                                  "precip_mm": h["precipitation"], "snow_cm": h["snowfall"],
+                                  "wind_mph": h["wind_speed_10m"]}).set_index("time")
+    return out
+
+
+def _tag(teams: list[str]) -> str:
+    return hashlib.md5("|".join(teams).encode()).hexdigest()[:10]  # stable across runs (hash() is not)
+
+
+def _params(teams: list[str]) -> dict:
+    return dict(latitude=",".join(str(STADIUMS[t][0]) for t in teams), longitude=",".join(str(STADIUMS[t][1]) for t in teams),
+                hourly=VARS, timezone="UTC", temperature_unit="fahrenheit", wind_speed_unit="mph")
+
+
+def archive_hourly(teams: list[str], start: str, end: str, refresh: bool = False) -> dict[str, pd.DataFrame]:
+    """Hourly UTC history for several stadiums in one request."""
+    teams = sorted(teams)
+    q = {**_params(teams), "start_date": start, "end_date": end}
+    key = f"archive_{start}_{end}_{_tag(teams)}.json"
+    return _frames(teams, _get(f"{ARCHIVE}?{urllib.parse.urlencode(q)}", key, refresh=refresh))
+
+
+def forecast_hourly(teams: list[str], past_days: int = 14, refresh: bool = False) -> dict[str, pd.DataFrame]:
+    """Hourly UTC for the last `past_days` plus the next 16 days, several stadiums in one request."""
+    teams = sorted(teams)
+    q = {**_params(teams), "past_days": past_days, "forecast_days": 16}
+    key = f"forecast_{_tag(teams)}.json"
+    return _frames(teams, _get(f"{FORECAST}?{urllib.parse.urlencode(q)}", key, ttl_hours=FORECAST_TTL_HOURS, refresh=refresh))
 
 
 def kickoff_utc(gameday: str, gametime: str) -> pd.Timestamp:
@@ -72,20 +104,38 @@ def kickoff_utc(gameday: str, gametime: str) -> pd.Timestamp:
     return pd.Timestamp(f"{gameday} {gametime}", tz="America/New_York").tz_convert("UTC")
 
 
-def game_weather(schedule: pd.DataFrame, hours: int = 3, refresh: bool = False) -> pd.DataFrame:
-    """One row per non-neutral game: precip_mm and snow_cm summed, temp_f / wind_mph averaged over the
-    `hours` after kickoff. Index by game_id."""
-    g = schedule[schedule["location"] != "Neutral"]
+def _window(h: pd.DataFrame, k: pd.Timestamp, hours: int) -> dict:
+    w = h[(h.index > k) & (h.index <= k + pd.Timedelta(hours=hours))].dropna(how="all")
+    if len(w) < hours:  # not (fully) available yet, e.g. beyond the forecast horizon
+        return dict(precip_mm=float("nan"), snow_cm=float("nan"), temp_f=float("nan"), wind_mph=float("nan"))
+    return dict(precip_mm=w.precip_mm.sum(), snow_cm=w.snow_cm.sum(), temp_f=w.temp_f.mean(), wind_mph=w.wind_mph.mean())
+
+
+def game_weather(schedule: pd.DataFrame, hours: int = 3, refresh: bool = False, today: pd.Timestamp | None = None) -> pd.DataFrame:
+    """One row per non-neutral game (index game_id): precip_mm / snow_cm summed, temp_f / wind_mph averaged
+    over the `hours` after kickoff. NaN where the weather is not available (beyond the 16-day forecast).
+
+    Games older than RECENT_DAYS use the archive; newer and upcoming games use the forecast API.
+    """
+    g = schedule[schedule["location"] != "Neutral"].copy()
+    today = today or pd.Timestamp.now(tz="UTC")
+    cutoff = (today - pd.Timedelta(days=RECENT_DAYS)).strftime("%Y-%m-%d")
+    old, new = g[g["gameday"] < cutoff], g[g["gameday"] >= cutoff]
     rows = []
-    for team, tg in g.groupby("home_team"):
-        # +1 day: an evening kickoff plus the window runs past midnight UTC
-        end = (pd.Timestamp(tg["gameday"].max()) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-        h = hourly(team, tg["gameday"].min(), end, refresh=refresh)
-        for r in tg.itertuples():
-            k = kickoff_utc(r.gameday, r.gametime)
-            w = h[(h.index > k) & (h.index <= k + pd.Timedelta(hours=hours))]
-            rows.append(dict(game_id=r.game_id, precip_mm=w.precip_mm.sum(), snow_cm=w.snow_cm.sum(),
-                             temp_f=w.temp_f.mean(), wind_mph=w.wind_mph.mean()))
+    if len(old):
+        end = (pd.Timestamp(old["gameday"].max()) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")  # kickoff + window crosses midnight UTC
+        hist = archive_hourly(list(old["home_team"].unique()), old["gameday"].min(), end, refresh)
+        for r in old.itertuples():
+            rows.append(dict(game_id=r.game_id, **_window(hist[r.home_team], kickoff_utc(r.gameday, r.gametime), hours)))
+    if len(new):
+        # the forecast request is only worth making if a game falls inside its 14 + 16 day span
+        span_start, span_end = today - pd.Timedelta(days=14), today + pd.Timedelta(days=16)
+        near = new[[span_start <= kickoff_utc(r.gameday, r.gametime) <= span_end for r in new.itertuples()]]
+        fc = forecast_hourly(list(near["home_team"].unique()), refresh=refresh) if len(near) else {}
+        for r in new.itertuples():
+            h = fc.get(r.home_team)
+            rows.append(dict(game_id=r.game_id, **(_window(h, kickoff_utc(r.gameday, r.gametime), hours) if h is not None
+                                                     else dict(precip_mm=float("nan"), snow_cm=float("nan"), temp_f=float("nan"), wind_mph=float("nan")))))
     return pd.DataFrame(rows).set_index("game_id")
 
 

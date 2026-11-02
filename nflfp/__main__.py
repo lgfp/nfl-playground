@@ -4,7 +4,16 @@ import argparse
 
 import pandas as pd
 
-from . import data, lines as linemod, model
+from . import data, lines as linemod, model, weather
+
+
+def _warn(adj, notes: list[str]) -> None:
+    if adj is not None and adj.missing:
+        print(f"\nnote: no betting line yet for {len(adj.missing)} team-games (left unadjusted) - lines are posted close to game day")
+    if adj is not None and adj.missing_wind:
+        print(f"note: no wind forecast for {len(adj.missing_wind)} team-games (treated as average wind)")
+    for n in notes:
+        print("note:", n)
 
 
 def main() -> None:
@@ -22,8 +31,10 @@ def main() -> None:
     ap.add_argument("--sort-by", default="rush_pts", choices=["rush_pts", "rec_pts", "total_pts"], help="sort for --teams (default rush_pts)")
     ap.add_argument("--neutral", nargs="*", default=None, choices=list(model.COMPONENTS),
                     help="components to leave at the league average (no opponent adjustment), e.g. rush_tds (default: rush_tds; pass --neutral with no values for none)")
+    ap.add_argument("--no-lines", action="store_true", help="turn off the betting-line + wind adjustment (on by default)")
     ap.add_argument("--use-lines", nargs="*", choices=list(linemod.FEATURES), default=None,
-                    help="adjust for the betting lines (point spread and/or game total); no values = both. Off by default")
+                    help="which betting-line features to use (default: spread and total)")
+    ap.add_argument("--no-wind", action="store_true", help="leave wind out of the receiving adjustment")
     ap.add_argument("--csv", help="also write the full player projection to this CSV")
     a = ap.parse_args()
     pd.options.display.float_format = "{:.2f}".format
@@ -41,12 +52,19 @@ def main() -> None:
         raise SystemExit(f"Teams in schedule but not in stats (abbreviation mismatch?): {sorted(unknown)}")
 
     ratings = model.fit_ratings(model.team_games(pw), neutral=None if a.neutral is None else tuple(a.neutral))
-    adjust = None
-    if a.use_lines is not None:
-        use = tuple(a.use_lines) or linemod.FEATURES
-        adj = linemod.fit_line_adjustment(model.team_games(pw), ratings, scoring, linemod.team_lines(sched), use)
+    adjust = adj = None
+    notes = []
+    if not a.no_lines:
+        use = tuple(a.use_lines) if a.use_lines else linemod.FEATURES
+        wx = None
+        if not a.no_wind:
+            try:
+                wx = weather.game_weather(sched)
+            except Exception as e:  # network / rate limit: carry on without wind rather than fail
+                notes.append(f"wind left out: weather unavailable ({e})")
+        adj = linemod.fit_line_adjustment(model.team_games(pw), ratings, scoring, linemod.team_lines(sched, wx), use, wind=wx is not None)
         adjust = lambda offense, rush, rec: adj.adjust(week, offense, rush, rec)  # noqa: E731
-        print("Betting-line adjustment on (" + ", ".join(use) + "): " +
+        print("Game-environment adjustment (" + ", ".join(sorted(set(adj.use["rush"]) | set(adj.use["rec"]))) + "): " +
               "; ".join(f"{k} " + " ".join(f"{c:+.2f}" for c in v) for k, v in adj.coef.items()))
     print(f"Season {a.season}: learned from weeks {int(pw['week'].min())}-{int(pw['week'].max())}, projecting week {week}\n")
     for kind in ("run", "pass"):
@@ -57,6 +75,7 @@ def main() -> None:
     if a.teams:
         print(f"Expected team rushing + receiving points, week {week} (ppr={a.ppr}):")
         print(model.project_teams(ratings, matchups, scoring, not a.no_offense_adj, a.sort_by, adjust).to_string())
+        _warn(adj, notes)
         return
 
     shares = model.usage_shares(pw, a.window)
@@ -66,6 +85,7 @@ def main() -> None:
     if a.csv:
         proj.to_csv(a.csv, index=False)
         print(f"\nWrote {len(proj)} rows to {a.csv}")
+    _warn(adj, notes)
 
 
 if __name__ == "__main__":
