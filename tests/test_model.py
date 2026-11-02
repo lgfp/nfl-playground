@@ -71,7 +71,7 @@ def test_player_points_sum_to_team_points():
     assert proj.rush_pts.sum() == pytest.approx(rush)
     assert proj.rec_pts.sum() == pytest.approx(rec)
     assert proj.pass_pts.sum() == pytest.approx(model.pass_points(model.team_expectation(r, "T0", "T1"), s))
-    assert proj.set_index("player").loc["Q", "pass_pts"] > 0
+    assert proj.set_index("player").loc["Q", "pass_pts"] == pytest.approx(model.pass_points(model.team_expectation(r, "T0", "T1"), s))
     assert proj.set_index("player").loc["A", "rush_pts"] == pytest.approx(0.75 * rush)
 
 
@@ -83,3 +83,13 @@ def test_usage_uses_current_team_only():
     ])
     sh = model.usage_shares(pw).set_index("player")
     assert sh.loc["A", "team"] == "NEW" and sh.loc["A", "carry_share"] == pytest.approx(0.5)
+
+
+def test_starting_qb_gets_all_passing_share():
+    pw = pd.DataFrame([
+        dict(player_id="s", player_display_name="S", position="QB", team="T", week=1, carries=0, targets=0, attempts=35),
+        dict(player_id="b", player_display_name="B", position="QB", team="T", week=2, carries=0, targets=0, attempts=5),
+        dict(player_id="s", player_display_name="S", position="QB", team="T", week=2, carries=0, targets=0, attempts=30),
+    ])
+    sh = model.usage_shares(pw).set_index("player")
+    assert sh.loc["S", "attempt_share"] == 1.0 and sh.loc["B", "attempt_share"] == 0.0

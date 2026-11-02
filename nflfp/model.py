@@ -37,7 +37,7 @@ class Scoring:
     ppr: float = 0.5        # per reception
     yard: float = 0.1       # per rushing/receiving yard
     td: float = 6.0         # per rushing/receiving TD
-    pass_yard: float = 0.1  # per passing yard
+    pass_yard: float = 0.04  # per passing yard
     pass_td: float = 4.0    # per passing TD
 
 
@@ -162,7 +162,14 @@ def usage_shares(player_week: pd.DataFrame, window: int | None = None) -> pd.Dat
         attempts=("attempts", "sum"),
     ).reset_index()
     g["carry_share"] = g["carries"] / g.groupby("cur_team")["carries"].transform("sum")
-    g["attempt_share"] = g["attempts"] / g.groupby("cur_team")["attempts"].transform("sum")
+    # all passing points go to the starter: the QB with most attempts in the team's latest game
+    latest = pw[pw["week"] == pw.groupby("team")["week"].transform("max")]
+    starters = latest.loc[latest.groupby("team")["attempts"].idxmax(), ["team", "player_id"]]
+    starters = starters[latest.loc[starters.index, "attempts"] > 0]
+    g["attempt_share"] = [
+        1.0 if (t, pid) in set(zip(starters.team, starters.player_id)) else 0.0
+        for t, pid in zip(g["cur_team"], g["player_id"])
+    ]
     g["target_share"] = g["targets"] / g.groupby("cur_team")["targets"].transform("sum")
     return g.rename(columns={"cur_team": "team"}).fillna({"carry_share": 0.0, "target_share": 0.0, "attempt_share": 0.0})
 

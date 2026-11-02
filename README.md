@@ -19,8 +19,8 @@ Data comes from [nflverse](https://github.com/nflverse/nflverse-data) (weekly pl
 3. **Matchup**: expected output = `league_avg x DEF[opp] x OFF[team]` (the opposing offense's deviation from average;
    `--no-offense-adj` to skip).
 4. **Player split**: rushing points by share of team carries, receiving points by share of targets,
-   QB passing points by share of pass attempts (shares use the player's current team; `--window N` for recent usage).
+   all QB passing points to the starter (most pass attempts in the team's latest game) (shares use the player's current team; `--window N` for recent usage).
 
-Default scoring: 0.1/yd, 6 per rushing/receiving TD, 4 per passing TD, 0.5 PPR (all overridable, see `--help`).
+Default scoring: 0.1/yd rushing/receiving, 0.04/yd passing, 6 per rushing/receiving TD, 4 per passing TD, 0.5 PPR (all overridable, see `--help`).
 
 Limitations: no injuries/game script/home field, usage shares are volume-only (not efficiency), no kickers/DST.

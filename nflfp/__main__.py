@@ -12,7 +12,7 @@ def main() -> None:
     ap.add_argument("--season", type=int, default=2026)
     ap.add_argument("--week", type=int, help="week to project (default: next unplayed week)")
     ap.add_argument("--ppr", type=float, default=0.5, help="points per reception (default 0.5)")
-    ap.add_argument("--pass-yard", type=float, default=0.1, help="points per passing yard (default 0.1)")
+    ap.add_argument("--pass-yard", type=float, default=0.04, help="points per passing yard (default 0.04)")
     ap.add_argument("--pass-td", type=float, default=4.0, help="points per passing TD (default 4)")
     ap.add_argument("--window", type=int, help="only use each team's last N games for usage shares")
     ap.add_argument("--top", type=int, default=30, help="rows to print")
