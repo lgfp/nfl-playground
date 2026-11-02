@@ -194,3 +194,15 @@ def test_weights_act_like_repeated_games_and_default_is_unweighted():
     weighted.loc[weighted.index[:5], "weight"] = 2.0
     pd.testing.assert_frame_equal(model.fit_ratings(doubled, noshr).dfn, model.fit_ratings(weighted, noshr).dfn)
     pd.testing.assert_frame_equal(model.fit_ratings(doubled, noshr).raw_allowed, model.fit_ratings(weighted, noshr).raw_allowed)
+
+
+def test_def_weight_zero_excludes_games_from_defense_factors_only():
+    tg, *_ = synthetic_games()
+    noshr = {c: 0.0 for c in model.COMPONENTS}
+    extra = tg.copy(); extra["rush_yds"] *= 3  # a distorted "other season"
+    extra["weight"], extra["def_weight"] = 1.0, 0.0
+    both = pd.concat([tg.assign(weight=1.0, def_weight=1.0), extra], ignore_index=True)
+    r_both, r_base = model.fit_ratings(both, noshr), model.fit_ratings(tg, noshr)
+    # defense factors only see the current games, so the distortion (a uniform x3) cannot move them
+    pd.testing.assert_series_equal(r_both.dfn["rush_yds"], r_base.dfn["rush_yds"], atol=1e-6, rtol=1e-6)
+    assert r_both.mu["rush_yds"] > r_base.mu["rush_yds"]

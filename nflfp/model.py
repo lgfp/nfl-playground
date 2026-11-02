@@ -71,16 +71,17 @@ def _mean_ratio(idx, ratios, counts, shrink, w):
     return np.divide(total, n, out=np.ones(len(counts)), where=n > 0)
 
 
-def _fit_component(o, d, y, w, n_teams, shrink, max_iter, tol):
+def _fit_component(o, d, y, w, wd, n_teams, shrink, max_iter, tol):
+    """`w` weights games for the offense factors and league mean, `wd` for the defense factors."""
     mu = np.average(y, weights=w)
     off = np.ones(n_teams)
     dfn = np.ones(n_teams)
     if mu <= 0:
         return mu, off, dfn
     n_o = np.bincount(o, weights=w, minlength=n_teams)
-    n_d = np.bincount(d, weights=w, minlength=n_teams)
+    n_d = np.bincount(d, weights=wd, minlength=n_teams)
     for _ in range(max_iter):
-        new_dfn = _mean_ratio(d, y / (mu * off[o]), n_d, shrink, w)
+        new_dfn = _mean_ratio(d, y / (mu * off[o]), n_d, shrink, wd)
         new_dfn /= new_dfn.mean()
         new_off = _mean_ratio(o, y / (mu * new_dfn[d]), n_o, shrink, w)
         new_off /= new_off.mean()
@@ -104,14 +105,16 @@ def fit_ratings(
     ix = {t: i for i, t in enumerate(teams)}
     o = tg["off_team"].map(ix).to_numpy()
     d = tg["def_team"].map(ix).to_numpy()
-    w = tg["weight"].to_numpy(float) if "weight" in tg else np.ones(len(tg))  # optional per-game weight
+    # optional per-game weights: "weight" for offense factors, "def_weight" for defense factors (default: same)
+    w = tg["weight"].to_numpy(float) if "weight" in tg else np.ones(len(tg))
+    wd = tg["def_weight"].to_numpy(float) if "def_weight" in tg else w
     mus, offs, dfns = {}, {}, {}
     for c in COMPONENTS:
-        mus[c], offs[c], dfns[c] = _fit_component(o, d, tg[c].to_numpy(float), w, len(teams), shrink[c], max_iter, tol)
+        mus[c], offs[c], dfns[c] = _fit_component(o, d, tg[c].to_numpy(float), w, wd, len(teams), shrink[c], max_iter, tol)
         if c in neutral:
             offs[c] = dfns[c] = np.ones(len(teams))
-    wt = tg[list(COMPONENTS)].mul(w, axis=0).groupby(tg["def_team"]).sum()
-    raw = wt.div(pd.Series(w, index=tg.index).groupby(tg["def_team"]).sum(), axis=0).reindex(teams)
+    wt = tg[list(COMPONENTS)].mul(wd, axis=0).groupby(tg["def_team"]).sum()
+    raw = wt.div(pd.Series(wd, index=tg.index).groupby(tg["def_team"]).sum(), axis=0).reindex(teams)
     return Ratings(
         mu=pd.Series(mus),
         off=pd.DataFrame(offs, index=teams),
