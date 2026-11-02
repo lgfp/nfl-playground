@@ -5,6 +5,7 @@ uv run nflfp                      # next unplayed games of the 2026 season
 uv run nflfp --week 9 --window 4  # a specific week, usage shares from last 4 games
 uv run nflfp --csv out.csv        # full player table
 uv run pytest
+uv run python -m nflfp.backtest   # walk-forward backtest of team rush vs receiving predictions
 ```
 
 Data comes from [nflverse](https://github.com/nflverse/nflverse-data) (weekly player stats + schedule), cached in `.cache/`.

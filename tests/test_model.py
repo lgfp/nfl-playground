@@ -123,3 +123,24 @@ def test_team_projection_sort_order():
     m = [("T0", "T1"), ("T2", "T3"), ("T4", "T5")]
     assert model.project_teams(r, m, model.Scoring()).rush_pts.is_monotonic_decreasing
     assert model.project_teams(r, m, model.Scoring(), sort_by="total_pts").total_pts.is_monotonic_decreasing
+
+
+def test_backtest_has_no_lookahead():
+    from nflfp import backtest
+    rows = []
+    rng = np.random.default_rng(1)
+    teams = [f"T{i}" for i in range(8)]
+    for w in range(1, 9):
+        perm = rng.permutation(8)
+        for a, b in zip(perm[::2], perm[1::2]):
+            for o, d in ((teams[a], teams[b]), (teams[b], teams[a])):
+                rows.append(dict(team=o, opponent_team=d, week=w, rushing_yards=rng.uniform(50, 150), rushing_tds=1,
+                                 receiving_yards=rng.uniform(150, 300), receiving_tds=2, receptions=20))
+    pw = pd.DataFrame(rows)
+    base = backtest.walk_forward(pw, model.Scoring(), min_week=5)
+    corrupted = pw.copy()
+    corrupted.loc[corrupted.week >= 7, ["rushing_yards", "receiving_yards"]] *= 1000  # change the future
+    after = backtest.walk_forward(corrupted, model.Scoring(), min_week=5)
+    pd.testing.assert_frame_equal(
+        base[base.week < 7][["week", "team", "mod_rush", "mod_rec", "lg_rush", "own_rush"]].reset_index(drop=True),
+        after[after.week < 7][["week", "team", "mod_rush", "mod_rec", "lg_rush", "own_rush"]].reset_index(drop=True))
