@@ -206,3 +206,49 @@ def test_def_weight_zero_excludes_games_from_defense_factors_only():
     # defense factors only see the current games, so the distortion (a uniform x3) cannot move them
     pd.testing.assert_series_equal(r_both.dfn["rush_yds"], r_base.dfn["rush_yds"], atol=1e-6, rtol=1e-6)
     assert r_both.mu["rush_yds"] > r_base.mu["rush_yds"]
+
+
+def _lines_fixture():
+    from nflfp import lines as linemod
+    tg, *_ = synthetic_games()
+    r = model.fit_ratings(tg, shrink={c: 0.0 for c in model.COMPONENTS}, neutral=())
+    teams = sorted(set(tg.off_team))
+    sched = pd.DataFrame([dict(week=w, home_team=a, away_team=b, spread_line=(i % 7) - 3.0, total_line=40.0 + (i % 5))
+                          for i, (w, a, b) in enumerate((w, teams[(w + k) % 12], teams[(w + k + 5) % 12]) for w in range(1, 15) for k in range(3))])
+    return linemod, tg, r, linemod.team_lines(sched)
+
+
+def test_team_lines_sign_convention():
+    from nflfp import lines as linemod
+    sched = pd.DataFrame([dict(week=1, home_team="H", away_team="A", spread_line=3.5, total_line=44.0)])
+    t = linemod.team_lines(sched).set_index("team")
+    assert t.loc["H", "fav"] == 3.5 and t.loc["A", "fav"] == -3.5 and (t.total_line == 44.0).all()
+
+
+def test_line_adjustment_recovers_a_planted_effect_and_floors_at_zero():
+    linemod, tg, r, lines = _lines_fixture()
+    s = model.Scoring()
+    d = tg.merge(lines, left_on=["week", "off_team"], right_on=["week", "team"])
+    planted = d[tg.columns].copy()
+    planted["rush_yds"] = d["rush_yds"] + 2.0 * d["fav"]  # +2 yards per point favoured = +0.2 rush points
+    base = linemod.fit_line_adjustment(d[tg.columns], r, s, lines, ("fav",))
+    adj = linemod.fit_line_adjustment(planted, r, s, lines, ("fav",))
+    # least squares is linear in the target, so the planted effect shifts the rush slope by exactly +0.2
+    assert adj.coef["rush"][1] - base.coef["rush"][1] == pytest.approx(0.2, abs=1e-9)
+    assert adj.coef["rec"][1] == pytest.approx(base.coef["rec"][1], abs=1e-9)
+    team = lines.team.iloc[0]
+    assert adj.adjust(int(lines.week.iloc[0]), team, 0.0, 0.0)[0] >= 0.0
+    with pytest.raises(SystemExit):
+        adj.adjust(99, team, 1.0, 1.0)
+
+
+def test_line_adjust_hook_changes_team_projection_only_when_given():
+    linemod, tg, r, lines = _lines_fixture()
+    s = model.Scoring()
+    adj = linemod.fit_line_adjustment(tg, r, s, lines)
+    wk = int(lines.week.iloc[0]); team = lines[lines.week == wk].team.iloc[0]
+    base = model.project_teams(r, [(team, "T1")], s)
+    hooked = model.project_teams(r, [(team, "T1")], s, adjust=lambda o, ru, re: adj.adjust(wk, o, ru, re))
+    plain = model.project_teams(r, [(team, "T1")], s, adjust=None)
+    pd.testing.assert_frame_equal(base, plain)
+    assert hooked.rush_pts.iloc[0] != base.rush_pts.iloc[0]

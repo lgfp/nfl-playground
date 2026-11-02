@@ -4,7 +4,7 @@ import argparse
 
 import pandas as pd
 
-from . import data, model
+from . import data, lines as linemod, model
 
 
 def main() -> None:
@@ -22,6 +22,8 @@ def main() -> None:
     ap.add_argument("--sort-by", default="rush_pts", choices=["rush_pts", "rec_pts", "total_pts"], help="sort for --teams (default rush_pts)")
     ap.add_argument("--neutral", nargs="*", default=None, choices=list(model.COMPONENTS),
                     help="components to leave at the league average (no opponent adjustment), e.g. rush_tds (default: rush_tds; pass --neutral with no values for none)")
+    ap.add_argument("--use-lines", nargs="*", choices=list(linemod.FEATURES), default=None,
+                    help="adjust for the betting lines (point spread and/or game total); no values = both. Off by default")
     ap.add_argument("--csv", help="also write the full player projection to this CSV")
     a = ap.parse_args()
     pd.options.display.float_format = "{:.2f}".format
@@ -39,6 +41,13 @@ def main() -> None:
         raise SystemExit(f"Teams in schedule but not in stats (abbreviation mismatch?): {sorted(unknown)}")
 
     ratings = model.fit_ratings(model.team_games(pw), neutral=None if a.neutral is None else tuple(a.neutral))
+    adjust = None
+    if a.use_lines is not None:
+        use = tuple(a.use_lines) or linemod.FEATURES
+        adj = linemod.fit_line_adjustment(model.team_games(pw), ratings, scoring, linemod.team_lines(sched), use)
+        adjust = lambda offense, rush, rec: adj.adjust(week, offense, rush, rec)  # noqa: E731
+        print("Betting-line adjustment on (" + ", ".join(use) + "): " +
+              "; ".join(f"{k} " + " ".join(f"{c:+.2f}" for c in v) for k, v in adj.coef.items()))
     print(f"Season {a.season}: learned from weeks {int(pw['week'].min())}-{int(pw['week'].max())}, projecting week {week}\n")
     for kind in ("run", "pass"):
         print(f"Defense vs the {kind}, worst first (per game; adj = against an average offense):")
@@ -47,11 +56,11 @@ def main() -> None:
 
     if a.teams:
         print(f"Expected team rushing + receiving points, week {week} (ppr={a.ppr}):")
-        print(model.project_teams(ratings, matchups, scoring, not a.no_offense_adj, a.sort_by).to_string())
+        print(model.project_teams(ratings, matchups, scoring, not a.no_offense_adj, a.sort_by, adjust).to_string())
         return
 
     shares = model.usage_shares(pw, a.window)
-    proj = model.project_players(ratings, shares, matchups, scoring, not a.no_offense_adj)
+    proj = model.project_players(ratings, shares, matchups, scoring, not a.no_offense_adj, adjust)
     print(f"\nTop {a.top} projected players, week {week} (base fantasy points, ppr={a.ppr}):")
     print(proj.head(a.top).to_string())
     if a.csv:

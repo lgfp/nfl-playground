@@ -210,19 +210,26 @@ def usage_shares(player_week: pd.DataFrame, window: int | None = None) -> pd.Dat
 
 
 def project_teams(
-    r: Ratings, matchups: list[tuple[str, str]], s: Scoring, use_offense_adj: bool = True, sort_by: str = "rush_pts"
+    r: Ratings, matchups: list[tuple[str, str]], s: Scoring, use_offense_adj: bool = True, sort_by: str = "rush_pts",
+    adjust=None,
 ) -> pd.DataFrame:
-    """Expected team rushing + receiving points (no player split; QB passing points excluded)."""
+    """Expected team rushing + receiving points (no player split; QB passing points excluded).
+
+    `adjust(offense, rush, rec) -> (rush, rec)` is an optional hook (e.g. the betting-line adjustment).
+    """
     rows = []
     for offense, defense in matchups:
         rush, rec = points(team_expectation(r, offense, defense, use_offense_adj), s)
+        if adjust:
+            rush, rec = adjust(offense, rush, rec)
         rows.append(dict(team=offense, opp=defense, rush_pts=rush, rec_pts=rec, total_pts=rush + rec))
     out = pd.DataFrame(rows, columns=["team", "opp", "rush_pts", "rec_pts", "total_pts"])
     return out.sort_values(sort_by, ascending=False).reset_index(drop=True)
 
 
 def project_players(
-    r: Ratings, shares: pd.DataFrame, matchups: list[tuple[str, str]], s: Scoring, use_offense_adj: bool = True
+    r: Ratings, shares: pd.DataFrame, matchups: list[tuple[str, str]], s: Scoring, use_offense_adj: bool = True,
+    adjust=None,
 ) -> pd.DataFrame:
     """Split each offense's expected rushing/receiving points among its players."""
     rows = []
@@ -230,6 +237,10 @@ def project_players(
         exp = team_expectation(r, offense, defense, use_offense_adj)
         team_rush, team_rec = points(exp, s)
         team_pass = pass_points(exp, s)
+        if adjust:  # QB passing points move with the receiving adjustment (same passes)
+            new_rush, new_rec = adjust(offense, team_rush, team_rec)
+            team_pass *= new_rec / team_rec if team_rec > 0 else 1.0
+            team_rush, team_rec = new_rush, new_rec
         sh = shares[shares["team"] == offense]
         for p in sh.itertuples():
             rush = p.carry_share * team_rush
