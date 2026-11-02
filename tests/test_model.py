@@ -115,3 +115,11 @@ def test_team_projection_matches_components():
     t = model.project_teams(r, [("T0", "T1")], s).iloc[0]
     rush, rec = model.points(model.team_expectation(r, "T0", "T1"), s)
     assert t.total_pts == pytest.approx(rush + rec)
+
+
+def test_team_projection_sort_order():
+    tg, *_ = synthetic_games()
+    r = model.fit_ratings(tg)
+    m = [("T0", "T1"), ("T2", "T3"), ("T4", "T5")]
+    assert model.project_teams(r, m, model.Scoring()).rush_pts.is_monotonic_decreasing
+    assert model.project_teams(r, m, model.Scoring(), sort_by="total_pts").total_pts.is_monotonic_decreasing
