@@ -252,3 +252,10 @@ def test_line_adjust_hook_changes_team_projection_only_when_given():
     plain = model.project_teams(r, [(team, "T1")], s, adjust=None)
     pd.testing.assert_frame_equal(base, plain)
     assert hooked.rush_pts.iloc[0] != base.rush_pts.iloc[0]
+
+
+def test_kickoff_is_converted_from_eastern_to_utc():
+    from nflfp import weather
+    assert weather.kickoff_utc("2025-09-07", "13:00") == pd.Timestamp("2025-09-07 17:00", tz="UTC")  # EDT
+    assert weather.kickoff_utc("2025-12-07", "13:00") == pd.Timestamp("2025-12-07 18:00", tz="UTC")  # EST
+    assert set(weather.STADIUMS) >= {"LA", "LAC", "LV", "NYG", "NYJ"}

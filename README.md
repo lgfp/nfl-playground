@@ -34,7 +34,9 @@ Limitations: no injuries/game script/home field, usage shares are volume-only (n
 
 ## Weather
 
-`uv run python analysis/weather_regression.py [season]` regresses game-level rushing/receiving points (and the model's
-residuals) on roof, temperature and wind from the nflverse schedule. Rain and snow are not in that file; for them
-use [Open-Meteo](https://open-meteo.com) (free, no key, forecast + historical archive) - the sandbox must allow
-`api.open-meteo.com` and `archive-api.open-meteo.com`.
+`nflfp/weather.py` pulls game-time weather (3h after kickoff, at the home stadium) from
+[Open-Meteo](https://open-meteo.com): free, no API key, non-commercial use, historical archive + 16-day forecast.
+The sandbox must allow `api.open-meteo.com` and `archive-api.open-meteo.com`; requests retry on connection resets.
+
+`uv run python analysis/weather_regression.py [season] [game_ids to drop]` regresses game-level rushing/receiving
+points (and the model's residuals) on roof, temperature, wind, rain and snow. Neutral-site games are excluded.
