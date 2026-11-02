@@ -1,8 +1,13 @@
-"""Walk-forward backtest of the team-level rushing / receiving point predictions.
+"""Backtest of the team-level rushing / receiving point predictions.
 
-For each week w >= min_week the model is fit on weeks < w only, then predicts every team's
+For each tested week w the model is fit on the rest of the season, then predicts every team's
 rushing and receiving points in week w's games; predictions are compared to what happened.
-Baselines: the league average to date, and the team's own average to date.
+
+* leave-one-week-out (default): train on *all* other weeks, past and future - the tested week is
+  the only thing held out. Shows how well the model describes a week given a full season.
+* walk-forward (--forward): train on earlier weeks only - what you could actually have known.
+
+Baselines (same training weeks): the league average, and the team's own average.
 """
 from __future__ import annotations
 
@@ -20,14 +25,18 @@ def team_points(pw: pd.DataFrame, s: model.Scoring) -> pd.DataFrame:
     return tg
 
 
-def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4) -> pd.DataFrame:
-    """One row per (team, week) with actual, model, league-avg and team-avg predictions."""
+def walk_forward(pw: pd.DataFrame, s: model.Scoring, min_week: int = 4, leave_one_out: bool = False) -> pd.DataFrame:
+    """One row per (team, week) with actual, model, league-avg and team-avg predictions.
+
+    leave_one_out=False trains on weeks before the tested week; True on every other week.
+    """
     games = team_points(pw, s)
     rows = []
     for w in sorted(games["week"].unique()):
         if w < min_week:
             continue
-        past, cur = games[games["week"] < w], games[games["week"] == w]
+        cur = games[games["week"] == w]
+        past = games[games["week"] != w] if leave_one_out else games[games["week"] < w]
         r = model.fit_ratings(past)
         for g in cur.itertuples():
             if g.off_team not in r.off.index or g.def_team not in r.dfn.index:
@@ -69,20 +78,23 @@ def summarize(bt: pd.DataFrame) -> pd.DataFrame:
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m nflfp.backtest")
     ap.add_argument("--seasons", type=int, nargs="+", default=[2025, 2026])
-    ap.add_argument("--min-week", type=int, default=4, help="first week to predict (needs history)")
+    ap.add_argument("--forward", action="store_true", help="train on earlier weeks only (default: all other weeks)")
+    ap.add_argument("--min-week", type=int, help="first week to predict (default 1, or 4 with --forward)")
     ap.add_argument("--ppr", type=float, default=0.5)
     ap.add_argument("--csv", help="write per team-game predictions here")
     a = ap.parse_args()
     pd.options.display.float_format = "{:.3f}".format
     s = model.Scoring(ppr=a.ppr)
+    min_week = a.min_week or (4 if a.forward else 1)
+    how = "earlier weeks only" if a.forward else "all other weeks of the season"
 
     frames = []
     for season in a.seasons:
-        bt = walk_forward(data.load_player_weeks(season), s, a.min_week)
+        bt = walk_forward(data.load_player_weeks(season), s, min_week, leave_one_out=not a.forward)
         bt.insert(0, "season", season)
         frames.append(bt)
     bt = pd.concat(frames, ignore_index=True)
-    print(f"{len(bt)} team-games, seasons {a.seasons}, predicting weeks >= {a.min_week}, trained on earlier weeks only\n")
+    print(f"{len(bt)} team-games, seasons {a.seasons}, predicting weeks >= {min_week}, trained on {how}\n")
     print("Actual outcomes (points per team-game):")
     print(spread(bt).to_string())
     print("\nPrediction error (R2 > 0 means better than always guessing the mean):")

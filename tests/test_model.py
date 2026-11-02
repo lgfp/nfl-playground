@@ -144,3 +144,31 @@ def test_backtest_has_no_lookahead():
     pd.testing.assert_frame_equal(
         base[base.week < 7][["week", "team", "mod_rush", "mod_rec", "lg_rush", "own_rush"]].reset_index(drop=True),
         after[after.week < 7][["week", "team", "mod_rush", "mod_rec", "lg_rush", "own_rush"]].reset_index(drop=True))
+
+
+def test_leave_one_out_holds_out_only_the_tested_week():
+    from nflfp import backtest
+    rng = np.random.default_rng(2)
+    teams = [f"T{i}" for i in range(8)]
+    rows = []
+    for w in range(1, 7):
+        perm = rng.permutation(8)
+        for a, b in zip(perm[::2], perm[1::2]):
+            for o, d in ((teams[a], teams[b]), (teams[b], teams[a])):
+                rows.append(dict(team=o, opponent_team=d, week=w, rushing_yards=rng.uniform(50, 150), rushing_tds=1,
+                                 receiving_yards=rng.uniform(150, 300), receiving_tds=2, receptions=20))
+    pw = pd.DataFrame(rows)
+    s = model.Scoring()
+    base = backtest.walk_forward(pw, s, min_week=1, leave_one_out=True)
+    cols = ["week", "team", "mod_rush", "mod_rec"]
+
+    same_week = pw.copy()  # corrupting the tested week itself must not change that week's prediction
+    same_week.loc[same_week.week == 3, ["rushing_yards", "receiving_yards"]] *= 1000
+    after = backtest.walk_forward(same_week, s, min_week=1, leave_one_out=True)
+    pd.testing.assert_frame_equal(base[base.week == 3][cols].reset_index(drop=True),
+                                  after[after.week == 3][cols].reset_index(drop=True))
+
+    future = pw.copy()  # but a *future* week must matter (that is the point of this mode)
+    future.loc[future.week == 6, ["rushing_yards", "receiving_yards"]] *= 1000
+    after = backtest.walk_forward(future, s, min_week=1, leave_one_out=True)
+    assert not np.allclose(base[base.week == 3].mod_rush.to_numpy(), after[after.week == 3].mod_rush.to_numpy())
