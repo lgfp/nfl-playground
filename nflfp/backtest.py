@@ -81,7 +81,7 @@ def main() -> None:
     ap.add_argument("--seasons", type=int, nargs="+", default=[2025, 2026])
     ap.add_argument("--forward", action="store_true", help="train on earlier weeks only (default: all other weeks)")
     ap.add_argument("--min-week", type=int, help="first week to predict (default 1, or 4 with --forward)")
-    ap.add_argument("--neutral", nargs="*", default=[], choices=list(model.COMPONENTS), help="components pinned to league average")
+    ap.add_argument("--neutral", nargs="*", default=None, choices=list(model.COMPONENTS), help="components pinned to league average (default: rush_tds; no values = none)")
     ap.add_argument("--ppr", type=float, default=0.5)
     ap.add_argument("--csv", help="write per team-game predictions here")
     a = ap.parse_args()
@@ -92,7 +92,7 @@ def main() -> None:
 
     frames = []
     for season in a.seasons:
-        bt = walk_forward(data.load_player_weeks(season), s, min_week, leave_one_out=not a.forward, neutral=tuple(a.neutral))
+        bt = walk_forward(data.load_player_weeks(season), s, min_week, leave_one_out=not a.forward, neutral=None if a.neutral is None else tuple(a.neutral))
         bt.insert(0, "season", season)
         frames.append(bt)
     bt = pd.concat(frames, ignore_index=True)

@@ -15,7 +15,8 @@ Data comes from [nflverse](https://github.com/nflverse/nflverse-data) (weekly pl
 1. **Raw**: per team-game, sum rushing yds/TDs and receiving yds/TDs/receptions (passing yds/TDs = receiving).
 2. **Opponent adjustment**: for each component, `output = league_avg x OFF[team] x DEF[opp]`. OFF and DEF are
    solved by alternating updates until converged, so a defense that faced strong offenses is credited.
-   Small shrinkage toward 1.0 (stronger for TDs) tames small samples.
+   Shrinkage toward 1.0 (8 pseudo-games, chosen by backtest) tames small samples. Rushing TDs are not
+   adjusted at all (league average): backtests showed they're unpredictable from team strength.
    `league_avg x DEF[team]` is what that defense would give up to an average offense.
 3. **Matchup**: expected output = `league_avg x DEF[opp] x OFF[team]` (the opposing offense's deviation from average;
    `--no-offense-adj` to skip).

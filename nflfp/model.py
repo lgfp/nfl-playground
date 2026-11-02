@@ -28,8 +28,12 @@ COMPONENTS = {
     "receptions": "receptions",
 }
 
-# pseudo-games of "average" mixed into every team's factor
-DEFAULT_SHRINK = {"rush_yds": 1.0, "rec_yds": 1.0, "receptions": 1.0, "rush_tds": 4.0, "rec_tds": 4.0}
+# pseudo-games of "average" mixed into every team's factor (8 was best in leave-one-week-out backtests)
+DEFAULT_SHRINK = {c: 8.0 for c in COMPONENTS}
+
+# components left at the league average (no opponent adjustment): rushing TDs were not predictable
+# from team strength, and adjusting them made rushing projections overconfident (see backtest)
+DEFAULT_NEUTRAL = ("rush_tds",)
 
 
 @dataclass
@@ -88,9 +92,13 @@ def _fit_component(o, d, y, n_teams, shrink, max_iter, tol):
 
 
 def fit_ratings(
-    tg: pd.DataFrame, shrink: dict | None = None, max_iter: int = 1000, tol: float = 1e-10, neutral: tuple = ()
+    tg: pd.DataFrame, shrink: dict | None = None, max_iter: int = 1000, tol: float = 1e-10, neutral: tuple | None = None
 ) -> Ratings:
-    """`neutral` components are pinned to the league average (all factors 1.0): no opponent adjustment."""
+    """`neutral` components are pinned to the league average (all factors 1.0): no opponent adjustment.
+
+    Defaults to DEFAULT_NEUTRAL; pass `()` to adjust every component.
+    """
+    neutral = DEFAULT_NEUTRAL if neutral is None else neutral
     shrink = {**DEFAULT_SHRINK, **(shrink or {})}
     teams = sorted(set(tg["off_team"]) | set(tg["def_team"]))
     ix = {t: i for i, t in enumerate(teams)}
