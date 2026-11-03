@@ -249,10 +249,10 @@ def project_players(
             if rush == 0 and rec == 0 and qb == 0:
                 continue
             rows.append(
-                dict(player=p.player, position=p.position, team=offense, opp=defense, games=p.games,
+                dict(player_id=p.player_id, player=p.player, position=p.position, team=offense, opp=defense, games=p.games,
                      carry_share=p.carry_share, target_share=p.target_share,
                      rush_pts=rush, rec_pts=rec, pass_pts=qb, exp_pts=rush + rec + qb)
             )
-    cols = ["player", "position", "team", "opp", "games", "carry_share", "target_share", "rush_pts", "rec_pts", "pass_pts", "exp_pts"]
+    cols = ["player_id", "player", "position", "team", "opp", "games", "carry_share", "target_share", "rush_pts", "rec_pts", "pass_pts", "exp_pts"]
     out = pd.DataFrame(rows, columns=cols)
     return out.sort_values("exp_pts", ascending=False).reset_index(drop=True)
