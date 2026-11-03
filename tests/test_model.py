@@ -411,3 +411,45 @@ def test_decay_default_is_wired_through_pipeline_cli_and_league():
     for mod in ("__main__", "league"):
         src = inspect.getsource(__import__(f"nflfp.{mod}", fromlist=["x"]))
         assert re.search(r'"--decay".*\n?.*default=model\.DEFAULT_DECAY', src), mod
+
+
+def test_cache_expiry_refresh_and_failure_handling(tmp_path, monkeypatch, capsys):
+    import os
+    import time
+    from nflfp import data
+    monkeypatch.setattr(data, "CACHE", tmp_path)
+    calls = []
+
+    def fake_retrieve(url, dest):
+        calls.append(str(dest))
+        if getattr(fake_retrieve, "fail", False):
+            raise OSError("network down")
+        open(dest, "w").write("fresh")
+
+    monkeypatch.setattr(data.urllib.request, "urlretrieve", fake_retrieve)
+    f = tmp_path / "x.csv"
+
+    def age(hours):
+        t = time.time() - hours * 3600
+        os.utime(f, (t, t))
+
+    assert data._fetch("u", "x.csv", False, 24) == f and f.read_text() == "fresh" and len(calls) == 1   # no file: download
+    data._fetch("u", "x.csv", False, 24); assert len(calls) == 1                                         # fresh: reuse
+    age(30); f.write_text("old"); age(30); data._fetch("u", "x.csv", False, 24)
+    assert len(calls) == 2 and f.read_text() == "fresh"                                                  # older than ttl: refetch
+    age(500); data._fetch("u", "x.csv", False, None); assert len(calls) == 2                             # ttl None: never expires
+    data._fetch("u", "x.csv", True, None); assert len(calls) == 3                                        # --refresh always refetches
+    fake_retrieve.fail = True
+    f.write_text("stale"); age(30)
+    assert data._fetch("u", "x.csv", False, 24) == f and f.read_text() == "stale"                        # failed refresh: keep the old copy
+    assert "could not refresh" in capsys.readouterr().err and not (tmp_path / "x.csv.part").exists()
+    with pytest.raises(OSError):
+        data._fetch("u", "nothing.csv", False, 24)                                                       # nothing to fall back on
+    assert not (tmp_path / "nothing.csv.part").exists()
+
+
+def test_current_season_rolls_over_in_march():
+    from nflfp import data
+    ts = pd.Timestamp
+    assert data.current_season(ts("2026-11-03")) == 2026 and data.current_season(ts("2027-01-15")) == 2026
+    assert data.current_season(ts("2027-02-28")) == 2026 and data.current_season(ts("2027-03-01")) == 2027

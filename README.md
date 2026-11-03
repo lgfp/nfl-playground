@@ -9,6 +9,8 @@ uv run python -m nflfp.backtest           # backtest team rush vs receiving pred
 ```
 
 Data comes from [nflverse](https://github.com/nflverse/nflverse-data) (weekly player stats + schedule), cached in `.cache/`.
+The current season's files are re-downloaded when older than 24h (nflverse updates nightly, on game days a bit more often);
+finished seasons never expire; `--refresh` forces a download. If a refresh fails, the older copy is used with a warning.
 
 ## Method
 
