@@ -386,3 +386,17 @@ def test_league_scoring_translation_and_lineup_and_upgrades():
     assert a.loc["C", "replaces"] == "W3" and a.loc["C", "gain_pct"] == pytest.approx(11 / 9 - 1)
     # TE D: 9.0 < 1.2 x 8.0 = 9.6 -> not an upgrade;  RB B: 13.1 < 1.2 x 11.0 = 13.2 -> not an upgrade
     assert "D" not in up.player.values and "B" not in up.player.values
+
+
+def test_decay_weights_recent_games_more_and_default_is_unchanged():
+    pw = pd.DataFrame([dict(player_id=pid, player_display_name=pid, position="RB", team="T", week=w, carries=c, targets=0, attempts=0)
+                       for w, (a, b) in enumerate([(20, 5), (20, 5), (5, 20), (5, 20)], start=1) for pid, c in (("A", a), ("B", b))])
+    eq = model.usage_shares(pw).set_index("player_id")
+    assert eq.loc["A", "carry_share"] == pytest.approx(0.5)                              # equal weights: 50 / 100
+    pd.testing.assert_frame_equal(model.usage_shares(pw, decay=1.0), model.usage_shares(pw))
+    rec = model.usage_shares(pw, decay=0.5).set_index("player_id")
+    assert rec.loc["B", "carry_share"] > 0.5 > rec.loc["A", "carry_share"]               # B carried more recently
+    assert rec.carry_share.sum() == pytest.approx(1)
+    last = model.usage_shares(pw, decay=0.0).set_index("player_id")                      # latest game only: 5 vs 20
+    assert last.loc["A", "carry_share"] == pytest.approx(0.2) and last.loc["B", "carry_share"] == pytest.approx(0.8)
+    assert eq.loc["A", "carries"] == 50                                                  # plain totals are unchanged

@@ -25,6 +25,9 @@ def main() -> None:
     ap.add_argument("--pass-yard", type=float, default=0.04, help="points per passing yard (default 0.04)")
     ap.add_argument("--pass-td", type=float, default=4.0, help="points per passing TD (default 4)")
     ap.add_argument("--window", type=int, help="only use each team's last N games for usage shares")
+    ap.add_argument("--decay", type=float, default=1.0,
+                    help="weight recent games more in the carry/target shares: a game k games back counts decay**k "
+                         "(default 1.0 = all games equal; 0.8 = each game back counts 80%% of the next)")
     ap.add_argument("--top", type=int, default=30, help="rows to print")
     ap.add_argument("--no-offense-adj", action="store_true", help="skip the opposing-offense-vs-average adjustment")
     ap.add_argument("--refresh", action="store_true", help="re-download data")
@@ -47,7 +50,7 @@ def main() -> None:
     res = pipeline.project(
         a.season, a.week, model.Scoring(ppr=a.ppr, pass_yard=a.pass_yard, pass_td=a.pass_td), refresh=a.refresh,
         neutral=None if a.neutral is None else tuple(a.neutral), lines=not a.no_lines, line_features=a.use_lines,
-        wind=not a.no_wind, injuries=not a.no_injuries, refresh_injuries=a.refresh_injuries, window=a.window,
+        wind=not a.no_wind, injuries=not a.no_injuries, refresh_injuries=a.refresh_injuries, window=a.window, decay=a.decay,
         offense_adj=not a.no_offense_adj, players=not a.teams)
 
     if res.adjustment_text:

@@ -30,7 +30,7 @@ def project(
     season: int = 2026, week: int | None = None, scoring: model.Scoring | None = None, *, refresh: bool = False,
     neutral: tuple | None = None, lines: bool = True, line_features: tuple | None = None, wind: bool = True,
     injuries: bool = True, refresh_injuries: bool = False, window: int | None = None, offense_adj: bool = True,
-    players: bool = True,
+    players: bool = True, decay: float = 1.0,
 ) -> Result:
     """Fit the model and project every player for `week` (default: the next unplayed week).
 
@@ -76,7 +76,7 @@ def project(
             exclude = set(res.injuries["player_id"])
         except Exception as e:  # network / rate limit: carry on with everyone available rather than fail
             res.notes.append(f"injuries not applied: Sleeper unavailable ({e})")
-    res.shares = model.usage_shares(pw, window, exclude)
+    res.shares = model.usage_shares(pw, window, exclude, decay)
     if res.injuries is not None:
         usage = pw[pw["player_id"].isin(exclude)].groupby("player_id")[["carries", "targets", "attempts"]].sum().sum(axis=1)
         playing = {t for pair in matchups for t in pair}

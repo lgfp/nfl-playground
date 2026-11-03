@@ -173,7 +173,9 @@ def team_expectation(r: Ratings, offense: str, defense: str, use_offense_adj: bo
     return f * r.off.loc[offense] if use_offense_adj else f
 
 
-def usage_shares(player_week: pd.DataFrame, window: int | None = None, exclude: frozenset | set = frozenset()) -> pd.DataFrame:
+def usage_shares(
+    player_week: pd.DataFrame, window: int | None = None, exclude: frozenset | set = frozenset(), decay: float = 1.0
+) -> pd.DataFrame:
     """Each player's share of his *current* team's carries and targets.
 
     Uses games played for the player's current team (latest team in the data), optionally
@@ -183,11 +185,20 @@ def usage_shares(player_week: pd.DataFrame, window: int | None = None, exclude: 
     Players in `exclude` (e.g. ruled out or on IR) are dropped first, so their carries and targets are
     spread over their teammates in proportion to those teammates' usage. If the team's starting QB is
     excluded, the passing points go to the remaining QB with the most attempts.
+
+    `decay` weights recent games more: a game k games before the team's latest counts decay**k as much
+    (1.0 = every game equal, the default; 0 = only the latest game). Carry and target shares use the weighted
+    totals; the `carries` / `targets` columns stay plain totals.
     """
-    pw = player_week.sort_values("week")
+    keep = ["player_id", "player_display_name", "position", "team", "week", "carries", "targets", "attempts"]
+    pw = player_week[keep].sort_values("week")  # only what is needed: the full stats frame is very wide
     cur = pw.groupby("player_id")["team"].last().rename("cur_team")
     pw = pw.join(cur, on="player_id")
-    pw = pw[(pw["team"] == pw["cur_team"]) & ~pw["player_id"].isin(exclude)]
+    pw = pw[pw["team"] == pw["cur_team"]]
+    age = pw.groupby("team")["week"].rank(method="dense", ascending=False) - 1  # 0 = the team's latest game
+    wt = np.power(float(decay), age)
+    pw = pw.assign(carries_w=pw["carries"] * wt, targets_w=pw["targets"] * wt)
+    pw = pw[~pw["player_id"].isin(exclude)]
     if window:
         # weeks are not contiguous across byes; use the team's last `window` distinct weeks
         rank = pw.groupby("team")["week"].rank(method="dense", ascending=False)
@@ -199,8 +210,10 @@ def usage_shares(player_week: pd.DataFrame, window: int | None = None, exclude: 
         carries=("carries", "sum"),
         targets=("targets", "sum"),
         attempts=("attempts", "sum"),
+        carries_w=("carries_w", "sum"),
+        targets_w=("targets_w", "sum"),
     ).reset_index()
-    g["carry_share"] = g["carries"] / g.groupby("cur_team")["carries"].transform("sum")
+    g["carry_share"] = g["carries_w"] / g.groupby("cur_team")["carries_w"].transform("sum")
     # all passing points go to the starter: the QB with most attempts in the team's latest game
     latest = pw[pw["week"] == pw.groupby("team")["week"].transform("max")]
     starters = latest.loc[latest.groupby("team")["attempts"].idxmax(), ["team", "player_id"]]
@@ -213,7 +226,8 @@ def usage_shares(player_week: pd.DataFrame, window: int | None = None, exclude: 
         1.0 if (t, pid) in set(zip(starters.team, starters.player_id)) else 0.0
         for t, pid in zip(g["cur_team"], g["player_id"])
     ]
-    g["target_share"] = g["targets"] / g.groupby("cur_team")["targets"].transform("sum")
+    g["target_share"] = g["targets_w"] / g.groupby("cur_team")["targets_w"].transform("sum")
+    g = g.drop(columns=["carries_w", "targets_w"])
     return g.rename(columns={"cur_team": "team"}).fillna({"carry_share": 0.0, "target_share": 0.0, "attempt_share": 0.0})
 
 
