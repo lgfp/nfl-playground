@@ -161,20 +161,29 @@ def main() -> None:
             m = mm
         tbl = roster_table(roster["players"])
         starters = [s for s in (m or {}).get("starters", []) if s in set(tbl.sid)]
-        tbl["lineup"] = np.where(tbl.sid.isin(starters), "START", "bench")
-        shown = tbl.sort_values(["lineup", "position"], ascending=[False, True]).drop(columns="sid")
+        taxi, ir = set(roster.get("taxi") or []), set(roster.get("reserve") or [])
+        tbl["lineup"] = np.select([tbl.sid.isin(starters), tbl.sid.isin(taxi), tbl.sid.isin(ir)], ["START", "taxi", "IR"], "bench")
+        order = {"START": 0, "bench": 1, "taxi": 2, "IR": 3}
+        shown = tbl.assign(_o=tbl.lineup.map(order)).sort_values(["_o", "position", "pts"], ascending=[True, True, False]).drop(columns=["sid", "_o"])
         modeled = tbl[(tbl.lineup == "START") & tbl.pts.notna()]
         print(f"\n== {label}: {users.get(roster['owner_id'])} (record {roster['settings']['wins']}-{roster['settings']['losses']})")
         print(shown.to_string(index=False, na_rep="-"))
         print(f"   projected total of {len(modeled)} modeled starters (K/DEF not modeled): {modeled.pts.sum():.1f}")
         if label == "YOU":
             mine = tbl
-            sug = best_lineup(tbl[["player", "position", "pts"]], slots)
+            # taxi-squad and IR players can't be started in Sleeper without being activated first
+            startable = tbl[tbl.lineup.isin(["START", "bench"])]
+            sug = best_lineup(startable[["player", "position", "pts"]], slots)
             lineup_cmp = sug[["player", "position", "pts"]]
             cur = tbl[tbl.lineup == "START"]
             cur_sk = cur[cur.position.isin(SKILL)].pts.fillna(0).sum()
             gain = sug.pts.sum() - cur_sk
             print(f"\n   suggested lineup (QB/RB/WR/TE/flex): {sug.pts.sum():.1f} vs your current {cur_sk:.1f}  ->  {gain:+.1f}")
+            idle = tbl[tbl.lineup.isin(["taxi", "IR"]) & tbl.pts.notna() & tbl.position.isin(SKILL)]
+            better = idle[idle.pts > sug.pts.min()]
+            if len(better):
+                print("   on taxi/IR but projected above your lowest suggested starter (activate first): " +
+                      ", ".join(f"{r.player} {r.pts:.1f} ({r.lineup})" for r in better.itertuples()))
             if gain > 0.05:
                 out_p = sorted(set(cur[cur.position.isin(SKILL)].player) - set(sug.player))
                 in_p = sorted(set(sug.player) - set(cur.player))
