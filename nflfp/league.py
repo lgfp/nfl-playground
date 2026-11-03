@@ -179,11 +179,14 @@ def main() -> None:
             cur_sk = cur[cur.position.isin(SKILL)].pts.fillna(0).sum()
             gain = sug.pts.sum() - cur_sk
             print(f"\n   suggested lineup (QB/RB/WR/TE/flex): {sug.pts.sum():.1f} vs your current {cur_sk:.1f}  ->  {gain:+.1f}")
-            idle = tbl[tbl.lineup.isin(["taxi", "IR"]) & tbl.pts.notna() & tbl.position.isin(SKILL)]
-            better = idle[idle.pts > sug.pts.min()]
-            if len(better):
-                print("   on taxi/IR but projected above your lowest suggested starter (activate first): " +
-                      ", ".join(f"{r.player} {r.pts:.1f} ({r.lineup})" for r in better.itertuples()))
+            # taxi players can be activated, but not moved back, so they are shown as a separate, explicit choice
+            with_taxi = best_lineup(tbl[tbl.lineup.isin(["START", "bench", "taxi"])][["player", "position", "pts"]], slots)
+            up = with_taxi.pts.sum() - sug.pts.sum()
+            used = sorted(set(with_taxi.player) & set(tbl[tbl.lineup == "taxi"].player))
+            if used:
+                print(f"   activating from taxi ({', '.join(used)}) would add {up:+.1f} to the suggested lineup - a one-way move (no going back to taxi)")
+            else:
+                print("   no taxi player would improve the suggested lineup")
             if gain > 0.05:
                 out_p = sorted(set(cur[cur.position.isin(SKILL)].player) - set(sug.player))
                 in_p = sorted(set(sug.player) - set(cur.player))
