@@ -31,6 +31,12 @@ yet or there is no wind forecast, that team is left unadjusted and the run says 
 `--no-wind` drops wind, `--use-lines fav` (or `total`) picks line features. Wind comes from Open-Meteo (see Weather);
 the backtest uses observed wind, so it is a little optimistic compared with a forecast.
 
+Injuries: players Sleeper (public API, no account) lists as Out or IR are dropped from the carry/target shares, so
+their usage goes to teammates in proportion to the teammates' own usage; if the starting QB is out, the passing points go
+to the remaining QB with the most attempts. Status is as of now, so it only suits projecting the upcoming week;
+`--no-injuries` turns it off, `--refresh-injuries` re-downloads the player list (cached 24h). Not backtested: there is no
+historical injury data. It also doesn't use with/without-player splits, just proportional redistribution.
+
 Default scoring: 0.1/yd rushing/receiving, 0.04/yd passing, 6 per rushing/receiving TD, 4 per passing TD, 0.5 PPR (all overridable, see `--help`).
 
 The backtest (`python -m nflfp.backtest`) reports error (MAE, RMSE, R2) and *direction*: within each week, how often a

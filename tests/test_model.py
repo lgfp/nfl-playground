@@ -315,3 +315,49 @@ def test_wind_unknown_is_neutral_and_indoor_wind_is_zero():
     assert (t[t.week == 1].wind5 == 0).all()       # dome: no wind
     assert (t[t.week == 2].wind5 == 0).all()       # unknown roof -> the home team's usual roof (dome)
     assert (t[t.week == 3].wind5 == 4.0).all()     # outdoors: 20 mph = 4 units
+
+
+def _usage_fixture():
+    rows = []
+    for w in (1, 2, 3):
+        rows += [dict(player_id="rb1", player_display_name="RB One", position="RB", team="T", week=w, carries=15, targets=3, attempts=0),
+                 dict(player_id="rb2", player_display_name="RB Two", position="RB", team="T", week=w, carries=5, targets=1, attempts=0),
+                 dict(player_id="rb3", player_display_name="RB Three", position="RB", team="T", week=w, carries=10, targets=1, attempts=0),
+                 dict(player_id="wr1", player_display_name="WR One", position="WR", team="T", week=w, carries=0, targets=6, attempts=0),
+                 dict(player_id="qb1", player_display_name="QB One", position="QB", team="T", week=w, carries=0, targets=0, attempts=30)]
+    rows.append(dict(player_id="qb2", player_display_name="QB Two", position="QB", team="T", week=1, carries=0, targets=0, attempts=8))
+    return pd.DataFrame(rows)
+
+
+def test_excluded_players_are_dropped_and_shares_renormalise():
+    pw = _usage_fixture()
+    base = model.usage_shares(pw).set_index("player_id")
+    out = model.usage_shares(pw, exclude={"rb1"}).set_index("player_id")
+    assert "rb1" not in out.index
+    assert out.carry_share.sum() == pytest.approx(1) and out.target_share.sum() == pytest.approx(1)
+    # remaining RBs keep their relative usage: RB3 had 2x RB2's carries and still does
+    assert out.loc["rb3", "carry_share"] == pytest.approx(2 * out.loc["rb2", "carry_share"])
+    assert out.loc["rb2", "carry_share"] > base.loc["rb2", "carry_share"]
+    assert base.loc["rb1", "carry_share"] == pytest.approx(0.5)
+
+
+def test_passing_points_move_to_the_backup_when_the_starter_is_excluded():
+    pw = _usage_fixture()
+    assert model.usage_shares(pw).set_index("player_id").loc["qb1", "attempt_share"] == 1.0
+    out = model.usage_shares(pw, exclude={"qb1"}).set_index("player_id")
+    assert out.loc["qb2", "attempt_share"] == 1.0   # QB Two did not play in the latest week: fallback to most attempts
+
+
+def test_sleeper_mapping_by_id_name_and_team_code_and_status_filter():
+    from nflfp import sleeper
+    known = pd.DataFrame([dict(player_id="00-1", player_display_name="James Cook", team="BUF", position="RB"),
+                          dict(player_id="00-2", player_display_name="Puka Nacua", team="LA", position="WR"),
+                          dict(player_id="00-3", player_display_name="Justin Jefferson", team="MIN", position="WR"),
+                          dict(player_id="00-4", player_display_name="Justin Jefferson", team="CLE", position="LB")])
+    players = {"a": dict(first_name="James", last_name="Cook III", team="BUF", position="RB", gsis_id=None, injury_status="Out"),        # suffix
+               "b": dict(first_name="Puka", last_name="Nacua", team="LAR", position="WR", gsis_id=None, injury_status="IR"),             # LAR -> LA
+               "c": dict(first_name="Justin", last_name="Jefferson", team="MIN", position="WR", gsis_id="00-3", injury_status="Out"),    # by id
+               "d": dict(first_name="Other", last_name="Guy", team="MIN", position="WR", gsis_id="00-3", injury_status="Questionable"),  # not out
+               "e": dict(first_name="Nobody", last_name="Known", team="MIN", position="WR", gsis_id=None, injury_status="Out")}          # unmatched
+    out = sleeper.unavailable(players, known)
+    assert set(out.player_id) == {"00-1", "00-2", "00-3"}

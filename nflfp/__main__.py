@@ -4,7 +4,7 @@ import argparse
 
 import pandas as pd
 
-from . import data, lines as linemod, model, weather
+from . import data, lines as linemod, model, sleeper, weather
 
 
 def _warn(adj, notes: list[str]) -> None:
@@ -35,6 +35,9 @@ def main() -> None:
     ap.add_argument("--use-lines", nargs="*", choices=list(linemod.FEATURES), default=None,
                     help="which betting-line features to use (default: spread and total)")
     ap.add_argument("--no-wind", action="store_true", help="leave wind out of the receiving adjustment")
+    ap.add_argument("--no-injuries", action="store_true",
+                    help="don't drop players Sleeper lists as Out / IR from the carry and target shares (dropped by default)")
+    ap.add_argument("--refresh-injuries", action="store_true", help="re-download Sleeper's player list (cached for 24h)")
     ap.add_argument("--csv", help="also write the full player projection to this CSV")
     a = ap.parse_args()
     pd.options.display.float_format = "{:.2f}".format
@@ -78,7 +81,23 @@ def main() -> None:
         _warn(adj, notes)
         return
 
-    shares = model.usage_shares(pw, a.window)
+    exclude, out = set(), None
+    if not a.no_injuries:
+        try:
+            known = pw.sort_values("week").groupby("player_id")[["player_display_name", "team", "position"]].last().reset_index()
+            out = sleeper.unavailable(sleeper.load_players(a.refresh_injuries), known)
+            exclude = set(out["player_id"])
+        except Exception as e:  # network / rate limit: carry on with everyone available rather than fail
+            notes.append(f"injuries not applied: Sleeper unavailable ({e})")
+    shares = model.usage_shares(pw, a.window, exclude)
+    if out is not None:
+        usage = pw[pw["player_id"].isin(exclude)].groupby("player_id")[["carries", "targets", "attempts"]].sum().sum(axis=1)
+        playing = {t for pair in matchups for t in pair}
+        rel = out[out["player_id"].isin(usage[usage > 0].index) & out["team"].isin(playing)].copy()
+        rel["usage"] = rel["player_id"].map(usage)
+        top = rel.sort_values("usage", ascending=False).head(12)
+        print(f"Sleeper injuries: dropped {len(rel)} Out/IR players with usage this season from the carry/target shares "
+              f"(biggest: " + ", ".join(f"{r.name} {r.team} {r.status}" for r in top.itertuples()) + ")")
     proj = model.project_players(ratings, shares, matchups, scoring, not a.no_offense_adj, adjust)
     print(f"\nTop {a.top} projected players, week {week} (base fantasy points, ppr={a.ppr}):")
     print(proj.head(a.top).to_string())

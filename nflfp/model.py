@@ -173,17 +173,21 @@ def team_expectation(r: Ratings, offense: str, defense: str, use_offense_adj: bo
     return f * r.off.loc[offense] if use_offense_adj else f
 
 
-def usage_shares(player_week: pd.DataFrame, window: int | None = None) -> pd.DataFrame:
+def usage_shares(player_week: pd.DataFrame, window: int | None = None, exclude: frozenset | set = frozenset()) -> pd.DataFrame:
     """Each player's share of his *current* team's carries and targets.
 
     Uses games played for the player's current team (latest team in the data), optionally
     only the last `window` weeks the team played. Shares are per-game-average based, so a
     player who missed games is naturally diluted, and each team's shares sum to 1.
+
+    Players in `exclude` (e.g. ruled out or on IR) are dropped first, so their carries and targets are
+    spread over their teammates in proportion to those teammates' usage. If the team's starting QB is
+    excluded, the passing points go to the remaining QB with the most attempts.
     """
     pw = player_week.sort_values("week")
     cur = pw.groupby("player_id")["team"].last().rename("cur_team")
     pw = pw.join(cur, on="player_id")
-    pw = pw[pw["team"] == pw["cur_team"]]
+    pw = pw[(pw["team"] == pw["cur_team"]) & ~pw["player_id"].isin(exclude)]
     if window:
         # weeks are not contiguous across byes; use the team's last `window` distinct weeks
         rank = pw.groupby("team")["week"].rank(method="dense", ascending=False)
@@ -201,6 +205,10 @@ def usage_shares(player_week: pd.DataFrame, window: int | None = None) -> pd.Dat
     latest = pw[pw["week"] == pw.groupby("team")["week"].transform("max")]
     starters = latest.loc[latest.groupby("team")["attempts"].idxmax(), ["team", "player_id"]]
     starters = starters[latest.loc[starters.index, "attempts"] > 0]
+    if exclude:  # the starter may be out and the backup absent from the latest game: fall back to most attempts
+        none = set(g["cur_team"]) - set(starters.team)
+        top = g[g["cur_team"].isin(none) & (g["attempts"] > 0)].sort_values("attempts").groupby("cur_team").tail(1)
+        starters = pd.concat([starters, top.rename(columns={"cur_team": "team"})[["team", "player_id"]]], ignore_index=True)
     g["attempt_share"] = [
         1.0 if (t, pid) in set(zip(starters.team, starters.player_id)) else 0.0
         for t, pid in zip(g["cur_team"], g["player_id"])
