@@ -95,6 +95,8 @@ def main() -> None:
                     help="compare with the players in your suggested lineup (default), or with anyone on your roster, bench included")
     ap.add_argument("--positions", nargs="+", default=list(SKILL), choices=SKILL)
     ap.add_argument("--top", type=int, default=25, help="rows of upgrades to print")
+    ap.add_argument("--decay", type=float, default=model.DEFAULT_DECAY,
+                    help=f"recency weight for carry/target shares (default {model.DEFAULT_DECAY}; 1.0 = all games equal)")
     ap.add_argument("--no-lines", action="store_true")
     ap.add_argument("--no-wind", action="store_true")
     ap.add_argument("--no-injuries", action="store_true")
@@ -110,7 +112,8 @@ def main() -> None:
     print(f"{league['name']} ({league['total_rosters']} teams), week {week}; scoring from the league: "
           f"{scoring.ppr} PPR, {scoring.pass_yard}/pass yd, {scoring.pass_td}/pass TD, {scoring.td}/TD")
 
-    res = pipeline.project(a.season, week, scoring, lines=not a.no_lines, wind=not a.no_wind, injuries=not a.no_injuries)
+    res = pipeline.project(a.season, week, scoring, lines=not a.no_lines, wind=not a.no_wind, injuries=not a.no_injuries,
+                           decay=a.decay)
     notes += res.notes
     players = sleeper.load_players()
     known = res.pw.sort_values("week").groupby("player_id")[["player_display_name", "team", "position"]].last().reset_index()

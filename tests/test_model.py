@@ -400,3 +400,14 @@ def test_decay_weights_recent_games_more_and_default_is_unchanged():
     last = model.usage_shares(pw, decay=0.0).set_index("player_id")                      # latest game only: 5 vs 20
     assert last.loc["A", "carry_share"] == pytest.approx(0.2) and last.loc["B", "carry_share"] == pytest.approx(0.8)
     assert eq.loc["A", "carries"] == 50                                                  # plain totals are unchanged
+
+
+def test_decay_default_is_wired_through_pipeline_cli_and_league():
+    import inspect
+    import re
+    from nflfp import league, pipeline
+    assert model.DEFAULT_DECAY == 0.5
+    assert inspect.signature(pipeline.project).parameters["decay"].default == model.DEFAULT_DECAY
+    for mod in ("__main__", "league"):
+        src = inspect.getsource(__import__(f"nflfp.{mod}", fromlist=["x"]))
+        assert re.search(r'"--decay".*\n?.*default=model\.DEFAULT_DECAY', src), mod

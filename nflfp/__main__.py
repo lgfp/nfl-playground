@@ -25,9 +25,9 @@ def main() -> None:
     ap.add_argument("--pass-yard", type=float, default=0.04, help="points per passing yard (default 0.04)")
     ap.add_argument("--pass-td", type=float, default=4.0, help="points per passing TD (default 4)")
     ap.add_argument("--window", type=int, help="only use each team's last N games for usage shares")
-    ap.add_argument("--decay", type=float, default=1.0,
+    ap.add_argument("--decay", type=float, default=model.DEFAULT_DECAY,
                     help="weight recent games more in the carry/target shares: a game k games back counts decay**k "
-                         "(default 1.0 = all games equal; 0.8 = each game back counts 80%% of the next)")
+                         f"(default {model.DEFAULT_DECAY}; 1.0 = all games equal)")
     ap.add_argument("--top", type=int, default=30, help="rows to print")
     ap.add_argument("--no-offense-adj", action="store_true", help="skip the opposing-offense-vs-average adjustment")
     ap.add_argument("--refresh", action="store_true", help="re-download data")

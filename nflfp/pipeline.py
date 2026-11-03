@@ -30,7 +30,7 @@ def project(
     season: int = 2026, week: int | None = None, scoring: model.Scoring | None = None, *, refresh: bool = False,
     neutral: tuple | None = None, lines: bool = True, line_features: tuple | None = None, wind: bool = True,
     injuries: bool = True, refresh_injuries: bool = False, window: int | None = None, offense_adj: bool = True,
-    players: bool = True, decay: float = 1.0,
+    players: bool = True, decay: float = model.DEFAULT_DECAY,
 ) -> Result:
     """Fit the model and project every player for `week` (default: the next unplayed week).
 

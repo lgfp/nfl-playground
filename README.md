@@ -43,10 +43,10 @@ projections, a suggested best lineup, and the *available* QB/RB/WR/TE (on nobody
 player in that lineup at the same position (`--vs roster` compares with your whole roster, bench included). Projections
 are ours, not Sleeper's; K and D/ST are not modeled.
 
-Recency: `--decay 0.6` weights recent games more in the carry/target shares (a game k games back counts 0.6**k; default 1.0 =
-all games equal). `uv run python analysis/share_decay.py` backtests it at the team level (walk-forward, error = share of the
-team's carries/targets put on the wrong player): carries 0.300 -> 0.263 and targets 0.336 -> 0.312 at decay 0.5, better than
-both equal weighting and latest-game-only. Off by default; not yet wired into `nflfp.league`.
+Recency (on by default): the carry/target shares weight recent games more - a game k games back counts 0.5**k as much
+(`--decay`, 1.0 = all games equal; used by `nflfp` and `nflfp.league`). `uv run python analysis/share_decay.py` backtests it at
+the team level (walk-forward; error = share of the team's carries/targets put on the wrong player): carries 0.300 -> 0.263 and
+targets 0.336 -> 0.312 vs. equal weighting, and better than using only the latest game. Team totals are unaffected.
 
 Default scoring: 0.1/yd rushing/receiving, 0.04/yd passing, 6 per rushing/receiving TD, 4 per passing TD, 0.5 PPR (all overridable, see `--help`).
 

@@ -36,6 +36,11 @@ DEFAULT_SHRINK = {c: 8.0 for c in COMPONENTS}
 DEFAULT_NEUTRAL = ("rush_tds",)
 
 
+# recency weight for carry/target shares: a game k games back counts DEFAULT_DECAY**k as much (backtest: team-level
+# share error 0.300 -> 0.263 for carries, 0.336 -> 0.312 for targets vs. equal weighting; see analysis/share_decay.py)
+DEFAULT_DECAY = 0.5
+
+
 @dataclass
 class Scoring:
     ppr: float = 0.5        # per reception
@@ -187,7 +192,7 @@ def usage_shares(
     excluded, the passing points go to the remaining QB with the most attempts.
 
     `decay` weights recent games more: a game k games before the team's latest counts decay**k as much
-    (1.0 = every game equal, the default; 0 = only the latest game). Carry and target shares use the weighted
+    (1.0 = every game equal, the default here; 0 = only the latest game). The CLI and pipeline default to DEFAULT_DECAY. Carry and target shares use the weighted
     totals; the `carries` / `targets` columns stay plain totals.
     """
     keep = ["player_id", "player_display_name", "position", "team", "week", "carries", "targets", "attempts"]
