@@ -4,15 +4,16 @@ import argparse
 
 import pandas as pd
 
-from . import data, lines as linemod, model, sleeper, weather
+from . import lines as linemod, model, pipeline
 
 
-def _warn(adj, notes: list[str]) -> None:
+def _warn(res: pipeline.Result) -> None:
+    adj = res.adj
     if adj is not None and adj.missing:
         print(f"\nnote: no betting line yet for {len(adj.missing)} team-games (left unadjusted) - lines are posted close to game day")
     if adj is not None and adj.missing_wind:
         print(f"note: no wind forecast for {len(adj.missing_wind)} team-games (treated as average wind)")
-    for n in notes:
+    for n in res.notes:
         print("note:", n)
 
 
@@ -43,68 +44,35 @@ def main() -> None:
     pd.options.display.float_format = "{:.2f}".format
     pd.options.display.width = 200
 
-    scoring = model.Scoring(ppr=a.ppr, pass_yard=a.pass_yard, pass_td=a.pass_td)
-    pw = data.load_player_weeks(a.season, a.refresh)
-    sched = data.load_schedule(a.season, a.refresh)
+    res = pipeline.project(
+        a.season, a.week, model.Scoring(ppr=a.ppr, pass_yard=a.pass_yard, pass_td=a.pass_td), refresh=a.refresh,
+        neutral=None if a.neutral is None else tuple(a.neutral), lines=not a.no_lines, line_features=a.use_lines,
+        wind=not a.no_wind, injuries=not a.no_injuries, refresh_injuries=a.refresh_injuries, window=a.window,
+        offense_adj=not a.no_offense_adj, players=not a.teams)
 
-    week, matchups = data.next_matchups(sched, a.week)
-    if a.week:  # explicit week: learn only from games before it
-        pw = pw[pw["week"] < week]
-    unknown = {t for pair in matchups for t in pair} - set(pw["team"])
-    if unknown:
-        raise SystemExit(f"Teams in schedule but not in stats (abbreviation mismatch?): {sorted(unknown)}")
-
-    ratings = model.fit_ratings(model.team_games(pw), neutral=None if a.neutral is None else tuple(a.neutral))
-    adjust = adj = None
-    notes = []
-    if not a.no_lines:
-        use = tuple(a.use_lines) if a.use_lines else linemod.FEATURES
-        wx = None
-        if not a.no_wind:
-            try:
-                wx = weather.game_weather(sched)
-            except Exception as e:  # network / rate limit: carry on without wind rather than fail
-                notes.append(f"wind left out: weather unavailable ({e})")
-        adj = linemod.fit_line_adjustment(model.team_games(pw), ratings, scoring, linemod.team_lines(sched, wx), use, wind=wx is not None)
-        adjust = lambda offense, rush, rec: adj.adjust(week, offense, rush, rec)  # noqa: E731
-        print("Game-environment adjustment (" + ", ".join(sorted(set(adj.use["rush"]) | set(adj.use["rec"]))) + "): " +
-              "; ".join(f"{k} " + " ".join(f"{c:+.2f}" for c in v) for k, v in adj.coef.items()))
-    print(f"Season {a.season}: learned from weeks {int(pw['week'].min())}-{int(pw['week'].max())}, projecting week {week}\n")
+    if res.adjustment_text:
+        print(res.adjustment_text)
+    pw = res.pw
+    print(f"Season {a.season}: learned from weeks {int(pw['week'].min())}-{int(pw['week'].max())}, projecting week {res.week}\n")
     for kind in ("run", "pass"):
         print(f"Defense vs the {kind}, worst first (per game; adj = against an average offense):")
-        print(model.defense_ranking(ratings, scoring, kind).to_string())
+        print(model.defense_ranking(res.ratings, res.scoring, kind).to_string())
         print()
 
     if a.teams:
-        print(f"Expected team rushing + receiving points, week {week} (ppr={a.ppr}):")
-        print(model.project_teams(ratings, matchups, scoring, not a.no_offense_adj, a.sort_by, adjust).to_string())
-        _warn(adj, notes)
+        print(f"Expected team rushing + receiving points, week {res.week} (ppr={a.ppr}):")
+        print(model.project_teams(res.ratings, res.matchups, res.scoring, not a.no_offense_adj, a.sort_by, res.adjust).to_string())
+        _warn(res)
         return
 
-    exclude, out = set(), None
-    if not a.no_injuries:
-        try:
-            known = pw.sort_values("week").groupby("player_id")[["player_display_name", "team", "position"]].last().reset_index()
-            out = sleeper.unavailable(sleeper.load_players(a.refresh_injuries), known)
-            exclude = set(out["player_id"])
-        except Exception as e:  # network / rate limit: carry on with everyone available rather than fail
-            notes.append(f"injuries not applied: Sleeper unavailable ({e})")
-    shares = model.usage_shares(pw, a.window, exclude)
-    if out is not None:
-        usage = pw[pw["player_id"].isin(exclude)].groupby("player_id")[["carries", "targets", "attempts"]].sum().sum(axis=1)
-        playing = {t for pair in matchups for t in pair}
-        rel = out[out["player_id"].isin(usage[usage > 0].index) & out["team"].isin(playing)].copy()
-        rel["usage"] = rel["player_id"].map(usage)
-        top = rel.sort_values("usage", ascending=False).head(12)
-        print(f"Sleeper injuries: dropped {len(rel)} Out/IR players with usage this season from the carry/target shares "
-              f"(biggest: " + ", ".join(f"{r.name} {r.team} {r.status}" for r in top.itertuples()) + ")")
-    proj = model.project_players(ratings, shares, matchups, scoring, not a.no_offense_adj, adjust)
-    print(f"\nTop {a.top} projected players, week {week} (base fantasy points, ppr={a.ppr}):")
-    print(proj.head(a.top).to_string())
+    if res.injury_text:
+        print(res.injury_text)
+    print(f"\nTop {a.top} projected players, week {res.week} (base fantasy points, ppr={a.ppr}):")
+    print(res.proj.head(a.top).to_string())
     if a.csv:
-        proj.to_csv(a.csv, index=False)
-        print(f"\nWrote {len(proj)} rows to {a.csv}")
-    _warn(adj, notes)
+        res.proj.to_csv(a.csv, index=False)
+        print(f"\nWrote {len(res.proj)} rows to {a.csv}")
+    _warn(res)
 
 
 if __name__ == "__main__":

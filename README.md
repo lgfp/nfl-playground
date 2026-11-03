@@ -37,6 +37,12 @@ to the remaining QB with the most attempts. Status is as of now, so it only suit
 `--no-injuries` turns it off, `--refresh-injuries` re-downloads the player list (cached 24h). Not backtested: there is no
 historical injury data. It also doesn't use with/without-player splits, just proportional redistribution.
 
+Sleeper league tool: `uv run python -m nflfp.league <username> [--week N] [--margin 0.20] [--vs lineup|roster]` reads your
+league from Sleeper's public API (rosters, matchup, scoring settings, positions - no login) and prints your matchup with our
+projections, a suggested best lineup, and the *available* QB/RB/WR/TE (on nobody's roster) projected at least 20% above a
+player in that lineup at the same position (`--vs roster` compares with your whole roster, bench included). Projections
+are ours, not Sleeper's; K and D/ST are not modeled.
+
 Default scoring: 0.1/yd rushing/receiving, 0.04/yd passing, 6 per rushing/receiving TD, 4 per passing TD, 0.5 PPR (all overridable, see `--help`).
 
 The backtest (`python -m nflfp.backtest`) reports error (MAE, RMSE, R2) and *direction*: within each week, how often a

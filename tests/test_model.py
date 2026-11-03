@@ -361,3 +361,28 @@ def test_sleeper_mapping_by_id_name_and_team_code_and_status_filter():
                "e": dict(first_name="Nobody", last_name="Known", team="MIN", position="WR", gsis_id=None, injury_status="Out")}          # unmatched
     out = sleeper.unavailable(players, known)
     assert set(out.player_id) == {"00-1", "00-2", "00-3"}
+
+
+def test_league_scoring_translation_and_lineup_and_upgrades():
+    from nflfp import league
+    sc, notes = league.scoring_from_league({"rec": 0.5, "rec_yd": 0.1, "rush_yd": 0.1, "rec_td": 6.0, "pass_yd": 0.04, "pass_td": 4.0})
+    assert (sc.ppr, sc.yard, sc.td, sc.pass_yard, sc.pass_td) == (0.5, 0.1, 6.0, 0.04, 4.0) and notes == []
+    assert league.scoring_from_league({"rush_yd": 0.2, "rec_yd": 0.1})[1]          # differing yard rates are flagged
+
+    roster = pd.DataFrame([("Q1", "QB", 20.0), ("Q2", "QB", 18.0), ("R1", "RB", 15.0), ("R2", "RB", 12.0), ("R3", "RB", 11.0),
+                           ("W1", "WR", 14.0), ("W2", "WR", 13.0), ("W3", "WR", 9.0), ("T1", "TE", 8.0), ("X", "RB", np.nan)],
+                          columns=["player", "position", "pts"])
+    lu = league.best_lineup(roster, ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "FLEX", "K", "DEF", "BN"])
+    assert list(lu.player) == ["Q1", "R1", "R2", "W1", "W2", "T1", "R3", "W3"]       # fixed slots first, flex from the rest
+    sf = league.best_lineup(roster, ["QB", "SUPER_FLEX"])
+    assert list(sf.player) == ["Q1", "Q2"]                                           # a QB fits the super flex
+
+    avail = pd.DataFrame([("A", "RB", 14.5), ("B", "RB", 13.1), ("C", "WR", 11.0), ("D", "TE", 9.0)], columns=["player", "position", "pts"])
+    up = league.find_upgrades(avail, roster, 0.20)
+    # RB A (14.5) is >=20% above R3 (11.0 x 1.2 = 13.2) but not above R2 (12.0 x 1.2 = 14.4 -> yes, 14.5 clears it too)
+    assert list(up.player) == ["A", "C"]
+    a = up.set_index("player")
+    assert a.loc["A", "replaces"] == "R3" and a.loc["A", "beats"] == 2 and a.loc["A", "gain"] == pytest.approx(3.5)
+    assert a.loc["C", "replaces"] == "W3" and a.loc["C", "gain_pct"] == pytest.approx(11 / 9 - 1)
+    # TE D: 9.0 < 1.2 x 8.0 = 9.6 -> not an upgrade;  RB B: 13.1 < 1.2 x 11.0 = 13.2 -> not an upgrade
+    assert "D" not in up.player.values and "B" not in up.player.values
