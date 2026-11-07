@@ -99,3 +99,4 @@ time - ridge, opponent adjustment, Vegas lines, play-by-play, wind - reporting t
 
 `uv run python -m analysis.stack` is round 2: rush = ridge + Vegas (free slopes), pass = ridge + iterative opponent adjustment as the base,
 then each remaining idea added alone on top (sequential corrections, each slope fitted on the previous stage's residuals).
+`uv run python -m analysis.stack --round3` (passing only): wind joins the pass base (ridge + opponent + wind), then Vegas and play-by-play are added alone.

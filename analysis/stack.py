@@ -8,9 +8,12 @@ Round 2 (this file): the new base for each side, then each remaining idea added 
     pass:  base = ridge + opponent adj. + Vegas | + wind | + play-by-play (module 1b)
 Walk-forward on 2025-2026 (season 2025's "last season" is 2024).
 
-    uv run python -m analysis.stack
+    uv run python -m analysis.stack            # round 2
+    uv run python -m analysis.stack --round3   # passing only: wind joins the pass base (ridge + opponent + wind); then + Vegas | + play-by-play
 """
 from __future__ import annotations
+
+import sys
 
 import numpy as np
 import pandas as pd
@@ -28,6 +31,10 @@ PIPES = {
              "pass_+ wind": ("ridge_opp", ["wind"]), "pass_+ play-by-play (module 1b)": ("plays_opp", [])},
 }
 BASE_OF = {"rush": "rush_BASE (ridge+Vegas)", "pass": "pass_BASE (ridge+opponent)"}
+if "--round3" in sys.argv:    # passing only; the order of corrections is wind first (it is in the base), then whatever is added
+    PIPES = {"rush": {}, "pass": {"pass_ridge": ("ridge", []), "pass_ridge + opponent": ("ridge_opp", []), "pass_BASE (ridge+opponent+wind)": ("ridge_opp", ["wind"]),
+                                  "pass_+ Vegas": ("ridge_opp", ["wind", "vegas"]), "pass_+ play-by-play (module 1b)": ("plays_opp", ["wind"])}}
+    BASE_OF = {"pass": "pass_BASE (ridge+opponent+wind)"}
 
 
 def predict(G: pd.DataFrame, seasons=(2024, 2025, 2026)) -> pd.DataFrame:
@@ -86,6 +93,7 @@ def predict(G: pd.DataFrame, seasons=(2024, 2025, 2026)) -> pd.DataFrame:
                         if len(train):
                             res = (train[f"{s}_yds"] - train[f"{name}__s{k}"]).to_numpy(float)
                             xs, m = x_tr[c], (np.ones(len(train), bool) if c == "vegas" else ok)
+                            m = m & np.isfinite(res)          # training rows where this pipeline had no prediction (e.g. no play-level model in 2024) are skipped
                             den = float((xs[m] ** 2).sum())
                             slope = float((xs[m] * res[m]).sum() / den) if den else 0.0
                         else:
@@ -125,7 +133,7 @@ if __name__ == "__main__":
     bt = Pdf[Pdf.season.isin([2025, 2026])]
     print("dR2 = change in R2 against the BASE of each side, with a 95% interval (positive = better)\n")
     for label, sub in ((f"weeks {MAIN_FROM}+", bt[bt.week >= MAIN_FROM]), (f"weeks 1-{MAIN_FROM - 1}", bt[bt.week < MAIN_FROM])):
-        for side in SIDES:
+        for side in [x for x in SIDES if PIPES[x]]:
             print(f"=== {side.upper()} YARDS, {label} ({len(sub)} team-games)")
             print(table(sub, side).to_string()); print()
     cols = [c for c in bt.columns if c.startswith("slope__")]
