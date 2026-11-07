@@ -90,3 +90,8 @@ Splits a team's yards into plays x yards per play, opponent-adjusts each part wi
 adjustment on play volume. `data.load_pbp(season)` supplies the play-by-play. `uv run python -m analysis.plays_backtest` compares it
 with module 1 on the same actual yards. Result (2025-26, weeks 4+): the two tie on accuracy (rush R2 0.046 vs 0.042, pass 0.094 vs 0.094);
 the play-level version additionally exposes expected plays and yards per play (`rush_att_ridge`, `pass_ypa_ridge`, ...) for later modules.
+
+### One idea at a time (`analysis/ablation.py`)
+
+`uv run python -m analysis.ablation` starts from the simplest model (a team's own average yards to date) and adds exactly one idea at a
+time - ridge, opponent adjustment, Vegas lines, play-by-play, wind - reporting the change in R2 with a confidence interval.
