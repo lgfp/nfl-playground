@@ -96,3 +96,6 @@ the play-level version additionally exposes expected plays and yards per play (`
 `uv run python -m analysis.ablation` starts from the simplest model (a team's own average yards to date) and adds exactly one idea at a
 time - ridge, opponent adjustment, Vegas lines, play-by-play, wind - reporting the change in R2 with a confidence interval.
 `--stacked` does the same with the ridge model as the baseline (the other ideas, with their own averages ridged, added one at a time).
+
+`uv run python -m analysis.stack` is round 2: rush = ridge + Vegas (free slopes), pass = ridge + iterative opponent adjustment as the base,
+then each remaining idea added alone on top (sequential corrections, each slope fitted on the previous stage's residuals).
