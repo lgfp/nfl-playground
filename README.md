@@ -102,3 +102,19 @@ then each remaining idea added alone on top (sequential corrections, each slope 
 `uv run python -m analysis.stack --round3` (passing only): wind joins the pass base (ridge + opponent + wind), then Vegas and play-by-play are added alone.
 `uv run python -m analysis.rush_ridge` grids the rush chain (ridge -> Vegas) over ridge strength K and the last-season weight: the surface is flat
 (R2 0.043-0.049 for K 8-24, weight 0-0.3). Pass chain is final: ridge -> opponent adjustment -> wind -> Vegas (R2 0.117 weeks 4+).
+
+## Module 1 (final) - `nflfp/team_yards.py`
+
+Expected team rushing and passing yards for a week, the clean version of everything the exploration above settled on:
+
+    rush = ridge average (K=12, 15% last season / 85% league average)  ->  Vegas (yards per point favoured)
+    pass = ridge opponent-adjusted fit (K=8, 30% last season)          ->  wind  ->  Vegas
+
+    from nflfp import team_yards as TY, yards as Y
+    games = Y.team_game_yards(player_weeks)                  # actual team yards, all seasons needed
+    env = TY.environment(schedule, weather.game_weather(schedule))     # per season: fav (spread) and wind5
+    TY.project_week(games, env, 2026, 9)                     # rush_exp / pass_exp for every game of the week, from earlier games only
+
+All settings live in `TeamYardsConfig`. `uv run python -m analysis.team_yards_backtest` reproduces the backtest (2025-26, weeks 4+):
+rush R2 0.048 (MAE 38.7), pass R2 0.117 (MAE 53.9), against -0.006 / -0.002 for the league average and -0.041 / 0.014 for a team's own average.
+`nflfp/yards.py` is the engine for the opponent-adjusted pass fit; `nflfp/plays.py` (plays x yards per play) is kept for later modules.
