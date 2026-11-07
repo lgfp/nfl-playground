@@ -118,3 +118,16 @@ Expected team rushing and passing yards for a week, the clean version of everyth
 All settings live in `TeamYardsConfig`. `uv run python -m analysis.team_yards_backtest` reproduces the backtest (2025-26, weeks 4+):
 rush R2 0.048 (MAE 38.7), pass R2 0.117 (MAE 53.9), against -0.006 / -0.002 for the league average and -0.041 / 0.014 for a team's own average.
 `nflfp/yards.py` is the engine for the opponent-adjusted pass fit; `nflfp/plays.py` (plays x yards per play) is kept for later modules.
+
+## Module 2 - player attribution (`nflfp/attribution.py`)
+
+Module 1's team rush and pass yards are split among players by Sleeper's *projected volume* (public feed
+`api.sleeper.app/projections/nfl/{season}/{week}`, only `rush_att`, `rec_tgt` and `pass_att` are used - none of Sleeper's yards or points):
+a player gets his share of the team's projected carries of the team's rush yards, his share of projected targets of its pass yards
+(receiving), and his share of projected attempts of its pass yards (passing - in practice the starting QB). Touchdowns and receptions follow
+the yards at this season's league rates (rush TDs per rush yard, pass TDs per pass yard, receptions per pass yard). Out / IR players are
+removed first, so their volume goes to teammates in proportion to the teammates' own volume. This replaces the old heuristic shares in
+`model.usage_shares`. Every player of a team gets the same yards per carry / per target (player efficiency showed no predictive value).
+
+`uv run python -m analysis.week_players 2026 9` prints the week's top players. Caveat for backtests: Sleeper's feed for finished weeks is
+refreshed after the games, so it knows who actually played; only the current week's volume is a clean pre-game forecast.
