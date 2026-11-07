@@ -6,8 +6,8 @@ Module 1 gives each offense's expected rush and pass yards. Here they become fan
     receiving yards = team pass yards   x  player's share of the team's projected targets   (Sleeper `rec_tgt`)
     passing yards   = team pass yards   x  player's share of the team's projected attempts  (Sleeper `pass_att`; in practice the starter)
 
-Touchdowns and receptions are not modelled separately: they follow the yards at the league's rate this season so far
-(rush TDs per rush yard, pass TDs per pass yard, receptions per pass yard), shared out by the same volume shares.
+Touchdowns are left out (too noisy to project); the points are yards plus receptions only. Receptions follow the yards at the
+league's rate this season so far (receptions per pass yard), shared out by the same target shares.
 Players Sleeper lists as Out / IR are removed first, so their volume is spread over their teammates in proportion to
 the teammates' own projected volume.
 
@@ -33,18 +33,15 @@ VOLUME = {"rush_att": "carries", "rec_tgt": "targets", "pass_att": "attempts"}
 
 @dataclass(frozen=True)
 class Rates:
-    """League conversion of team yards into the other scoring events."""
-    rush_td_per_yd: float
-    pass_td_per_yd: float
+    """League conversion of team yards into receptions."""
     rec_per_pass_yd: float
 
 
 # ------------------------------------------------------------------------------------------------------ inputs
 def league_rates(player_weeks: pd.DataFrame) -> Rates:
     """Rates from nflverse player-weeks (pass in only the games before the week being projected)."""
-    s = player_weeks[["rushing_yards", "rushing_tds", "passing_yards", "passing_tds", "receptions"]].sum()
-    return Rates(rush_td_per_yd=float(s.rushing_tds / s.rushing_yards), pass_td_per_yd=float(s.passing_tds / s.passing_yards),
-                 rec_per_pass_yd=float(s.receptions / s.passing_yards))
+    s = player_weeks[["passing_yards", "receptions"]].sum()
+    return Rates(rec_per_pass_yd=float(s.receptions / s.passing_yards))
 
 
 def sleeper_volume(season: int, week: int) -> pd.DataFrame:
@@ -91,16 +88,13 @@ def attribute(team_yards: pd.DataFrame, sh: pd.DataFrame, rates: Rates, scoring:
     t = team_yards[["off_team", "def_team", "rush_exp", "pass_exp"]].rename(columns={"off_team": "team", "def_team": "opp"})
     d = sh.merge(t, on="team", how="inner")
     d["rush_yds"] = d.rush_exp * d.carries_share
-    d["rush_tds"] = d.rush_yds * rates.rush_td_per_yd
     d["rec_yds"] = d.pass_exp * d.targets_share
-    d["rec_tds"] = d.rec_yds * rates.pass_td_per_yd
     d["receptions"] = d.rec_yds * rates.rec_per_pass_yd
     d["pass_yds"] = d.pass_exp * d.attempts_share
-    d["pass_tds"] = d.pass_yds * rates.pass_td_per_yd
-    d["rush_pts"] = scoring.yard * d.rush_yds + scoring.td * d.rush_tds
-    d["rec_pts"] = scoring.yard * d.rec_yds + scoring.td * d.rec_tds + scoring.ppr * d.receptions
-    d["pass_pts"] = scoring.pass_yard * d.pass_yds + scoring.pass_td * d.pass_tds
+    d["rush_pts"] = scoring.yard * d.rush_yds
+    d["rec_pts"] = scoring.yard * d.rec_yds + scoring.ppr * d.receptions
+    d["pass_pts"] = scoring.pass_yard * d.pass_yds
     d["exp_pts"] = d.rush_pts + d.rec_pts + d.pass_pts
     cols = ["sleeper_id", "name", "position", "team", "opp", "carries", "targets", "attempts", "carries_share", "targets_share", "attempts_share",
-            "rush_yds", "rec_yds", "pass_yds", "rush_tds", "rec_tds", "pass_tds", "receptions", "rush_pts", "rec_pts", "pass_pts", "exp_pts"]
+            "rush_yds", "rec_yds", "pass_yds", "receptions", "rush_pts", "rec_pts", "pass_pts", "exp_pts"]
     return d[cols].sort_values("exp_pts", ascending=False).reset_index(drop=True)

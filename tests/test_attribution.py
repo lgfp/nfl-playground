@@ -23,7 +23,7 @@ def test_shares_sum_to_one_per_team_and_out_players_are_dropped():
 
 def test_attribution_conserves_team_yards_and_scores_them():
     ty = pd.DataFrame(dict(off_team=["X", "Y"], def_team=["Y", "X"], rush_exp=[100.0, 120.0], pass_exp=[250.0, 200.0]))
-    rates = A.Rates(rush_td_per_yd=0.01, pass_td_per_yd=0.008, rec_per_pass_yd=0.1)
+    rates = A.Rates(rec_per_pass_yd=0.1)
     out = A.attribute(ty, A.shares(vol()), rates)
     g = out.groupby("team")
     assert np.allclose(g.rush_yds.sum(), [100, 120]) and np.allclose(g.rec_yds.sum(), [250, 200]) and np.allclose(g.pass_yds.sum(), [250, 200])
@@ -31,11 +31,10 @@ def test_attribution_conserves_team_yards_and_scores_them():
     x = out.set_index("sleeper_id").loc["c"]                                              # the only WR: all of X's targets
     assert np.isclose(x.targets_share, 7 / 10) and np.isclose(x.rec_yds, 250 * 0.7)
     qb = out.set_index("sleeper_id").loc["d"]                                             # all of X's attempts
-    assert np.isclose(qb.pass_pts, sc.pass_yard * 250 + sc.pass_td * 250 * 0.008)
+    assert np.isclose(qb.pass_pts, sc.pass_yard * 250)
     assert np.isclose(out.exp_pts.sum(), out.rush_pts.sum() + out.rec_pts.sum() + out.pass_pts.sum())
 
 
 def test_league_rates():
-    pw = pd.DataFrame(dict(rushing_yards=[100, 100], rushing_tds=[1, 0], passing_yards=[250, 250], passing_tds=[2, 2], receptions=[20, 30]))
-    r = A.league_rates(pw)
-    assert np.isclose(r.rush_td_per_yd, 0.005) and np.isclose(r.pass_td_per_yd, 0.008) and np.isclose(r.rec_per_pass_yd, 0.1)
+    pw = pd.DataFrame(dict(passing_yards=[250, 250], receptions=[20, 30]))
+    assert np.isclose(A.league_rates(pw).rec_per_pass_yd, 0.1)
