@@ -100,3 +100,5 @@ time - ridge, opponent adjustment, Vegas lines, play-by-play, wind - reporting t
 `uv run python -m analysis.stack` is round 2: rush = ridge + Vegas (free slopes), pass = ridge + iterative opponent adjustment as the base,
 then each remaining idea added alone on top (sequential corrections, each slope fitted on the previous stage's residuals).
 `uv run python -m analysis.stack --round3` (passing only): wind joins the pass base (ridge + opponent + wind), then Vegas and play-by-play are added alone.
+`uv run python -m analysis.rush_ridge` grids the rush chain (ridge -> Vegas) over ridge strength K and the last-season weight: the surface is flat
+(R2 0.043-0.049 for K 8-24, weight 0-0.3). Pass chain is final: ridge -> opponent adjustment -> wind -> Vegas (R2 0.117 weeks 4+).
