@@ -9,7 +9,8 @@ def vol():
     rows = [("a", "RB1", "RB", "X", None, 12, 2, 0), ("b", "RB2", "RB", "X", None, 8, 1, 0), ("c", "WR1", "WR", "X", None, 0, 7, 0),
             ("d", "QB", "QB", "X", None, 3, 0, 30), ("e", "RBout", "RB", "X", "Out", 10, 3, 0), ("f", "RBy", "RB", "Y", None, 10, 4, 0),
             ("g", "QBy", "QB", "Y", None, 1, 0, 28)]
-    return pd.DataFrame(rows, columns=["sleeper_id", "name", "position", "team", "injury_status", "carries", "targets", "attempts"])
+    v = pd.DataFrame(rows, columns=["sleeper_id", "name", "position", "team", "injury_status", "carries", "targets", "attempts"])
+    return v.assign(**{c: 0.0 for c in A.THEIRS.values()})
 
 
 def test_shares_sum_to_one_per_team_and_out_players_are_dropped():
