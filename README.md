@@ -131,3 +131,22 @@ removed first, so their volume goes to teammates in proportion to the teammates'
 
 `uv run python -m analysis.week_players 2026 9` prints the week's top players. Caveat for backtests: Sleeper's feed for finished weeks is
 refreshed after the games, so it knows who actually played; only the current week's volume is a clean pre-game forecast.
+
+## Module 3 - expected team touchdowns (`nflfp/team_tds.py`)
+
+Rush TDs and pass TDs per team-game, each a Poisson regression on the Vegas implied team total (`total_line / 2 + spread / 2`) and module 1's expected
+yards for that side, fitted on last season plus this season's earlier weeks and refitted every week (only earlier games). Falls back to the league average
+with fewer than 150 usable games. Backtest 2025-26 weeks 4+ (`analysis/team_tds_backtest.py`, 596 team-games): squared error 4.7% (rush) and 10.1% (pass)
+below the league average to date; total TDs correlate 0.39 with the actual. `analysis/td_team.py` tried ~25 alternatives (a team's own TD history, opponent
+adjustment, TD per yard, distance-aware expected TDs, blends): none beat the Vegas total by a meaningful margin, and team history alone is about half as good.
+
+## Module 4 - touchdowns to players (`nflfp/td_attribution.py`)
+
+Module 3's team TDs are split by shares from the team's own play-by-play history (its games since last season, weighted 0.85 ** games-ago):
+rushing TDs by the player's share of the team's rushing *expected TDs* (each carry weighted by the league scoring rate at its yard line, last season's curve),
+receiving TDs by target share, passing TDs to the QB by module 2's Sleeper attempts share. Out / IR players are removed first. Backtest
+(`analysis/td_player.py`, ~45 variants): the rushing xTD share removes 13% of the squared error against the average candidate's rate (more for the top backs),
+receiving target share about 5%; a player's own TD history, red-zone share and fitted combinations added nothing. Per-game player TDs stay mostly noise
+(correlation 0.37 rushing, 0.23 receiving), but season totals track well (0.92 / 0.82). Players with no games for their current team (rookies, trades) get no TDs.
+
+`uv run python -m analysis.week_players 2026 9 25 <sleeper user>` runs modules 1-4 and prints expected points (yards + receptions + TDs) next to Sleeper's.
