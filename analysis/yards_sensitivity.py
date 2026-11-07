@@ -16,7 +16,7 @@ games, fixtures = load()
 
 print("=== A. Vegas modes, weeks 4+ (R2 / MAE; 'none' = the model without the lines adjustment)")
 rows = []
-for mode in ("transfer", "free", "relative"):
+for mode in ("transfer", "free", "relative", "unbalanced", "unbalanced_flat"):
     bt = walk_forward(games, fixtures, Y.YardsConfig(lines_mode=mode))
     sub = bt[bt.week >= MAIN_FROM]
     row = {"mode": mode}

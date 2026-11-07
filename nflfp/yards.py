@@ -23,7 +23,9 @@ each offense's factor the same way - until they stop changing. Both sets are nor
   on the residuals of the previous season (in-sample) and the current season's earlier games:
     "transfer" (the spec): add `beta * fav` rushing yards and remove `beta * fav` passing yards;
     "free":     separate yard slopes for rushing and passing (do favourites really pass less?);
-    "relative": rush x (1 + a * fav) and pass x (1 + b * fav) - separate relative slopes.
+    "relative": rush x (1 + a * fav) and pass x (1 + b * fav) - separate relative slopes;
+    "unbalanced": one beta; the favourite gets +beta*fav rushing yards and no change to passing, the underdog
+                 gets -beta*|fav| rushing and +2*beta*|fav| passing ("unbalanced_flat": the same with sign(fav) instead of fav).
 
 Everything uses only games before the week being projected.
 """
@@ -167,10 +169,18 @@ class LinesAdjustment:
     slopes: dict[str, float] = field(default_factory=dict)   # free: yards per point favoured; relative: fraction per point
 
     def as_slopes(self) -> tuple[float, float]:
-        """(rush, pass) slope per point favoured: yards for transfer / free, a fraction for relative."""
-        return (self.beta, -self.beta) if self.mode == "transfer" else (self.slopes["rush"], self.slopes["pass"])
+        """(rush, pass) slope per point favoured: yards for transfer / free, a fraction for relative; for the unbalanced
+        modes (beta, 2 * beta): the favourite's rushing slope and the underdog's passing slope."""
+        if self.mode == "transfer":
+            return self.beta, -self.beta
+        if self.mode.startswith("unbalanced"):
+            return self.beta, 2 * self.beta
+        return self.slopes["rush"], self.slopes["pass"]
 
     def apply(self, rush: float, pas: float, fav: float) -> tuple[float, float]:
+        if self.mode.startswith("unbalanced"):
+            x = fav if self.mode == "unbalanced" else float(np.sign(fav))
+            return max(rush + self.beta * x, 0.0), max(pas + 2 * self.beta * max(-x, 0.0), 0.0)
         if self.mode == "transfer":
             return max(rush + self.beta * fav, 0.0), max(pas - self.beta * fav, 0.0)
         if self.mode == "free":
@@ -185,6 +195,12 @@ def fit_lines(resid: pd.DataFrame, mode: str) -> LinesAdjustment:
     ss = float((f ** 2).sum())
     if ss == 0:
         return LinesAdjustment(mode, 0.0, {"rush": 0.0, "pass": 0.0})
+    if mode.startswith("unbalanced"):   # one beta for rush (all games) and pass (underdogs only, twice the size)
+        x = f if mode == "unbalanced" else np.sign(f)
+        under = np.minimum(x, 0.0)                       # = -|x| for the underdog, 0 for the favourite
+        denom = float((x ** 2).sum() + 4 * (under ** 2).sum())
+        beta = float(((x * rr).sum() - 2 * (under * pr).sum()) / denom) if denom else 0.0
+        return LinesAdjustment(mode, beta=beta)
     if mode == "relative":      # resid = exp * slope * f  ->  slope = sum(f exp resid) / sum((f exp)^2)
         er, ep = resid["rush_exp"].to_numpy(float), resid["pass_exp"].to_numpy(float)
         return LinesAdjustment(mode, slopes={"rush": float((f * er * rr).sum() / ((f * er) ** 2).sum()),
@@ -193,7 +209,7 @@ def fit_lines(resid: pd.DataFrame, mode: str) -> LinesAdjustment:
         return LinesAdjustment(mode, beta=float((f * (rr - pr)).sum() / (2 * ss)))
     if mode == "free":
         return LinesAdjustment(mode, slopes={"rush": float((f * rr).sum() / ss), "pass": float((f * pr).sum() / ss)})
-    raise ValueError("lines_mode must be 'transfer', 'free' or 'relative'")
+    raise ValueError("lines_mode must be 'transfer', 'free', 'relative', 'unbalanced' or 'unbalanced_flat'")
 
 
 # ------------------------------------------------------------------------------------------------ the projection

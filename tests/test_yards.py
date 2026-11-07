@@ -123,3 +123,19 @@ def test_relative_lines_mode_recovers_a_planted_multiplicative_effect():
     assert r == pytest.approx(106.0) and p == pytest.approx(196.0)
     with pytest.raises(ValueError):
         Y.fit_lines(resid, "bogus")
+
+
+def test_unbalanced_mode_recovers_beta_and_leaves_favourite_pass_alone():
+    rng = np.random.default_rng(1)
+    f = rng.integers(-10, 11, 600).astype(float)
+    b = 1.5
+    rr = b * f                                   # rush: +b*fav for everyone
+    pr = np.where(f < 0, 2 * b * -f, 0.0)        # pass: +2b*|fav| for underdogs only
+    resid = pd.DataFrame({"fav": f, "rush_resid": rr, "pass_resid": pr, "rush_exp": 100.0, "pass_exp": 230.0})
+    adj = Y.fit_lines(resid, "unbalanced")
+    assert adj.beta == pytest.approx(b)
+    assert adj.apply(100.0, 230.0, 6.0) == pytest.approx((109.0, 230.0))      # favourite: +beta*fav rush, pass unchanged
+    assert adj.apply(100.0, 230.0, -6.0) == pytest.approx((91.0, 248.0))      # underdog: -beta*|fav| rush, +2*beta*|fav| pass
+    flat = Y.fit_lines(resid.assign(rush_resid=b * np.sign(f), pass_resid=np.where(f < 0, 2 * b, 0.0)), "unbalanced_flat")
+    assert flat.beta == pytest.approx(b) and flat.apply(100.0, 230.0, 6.0) == pytest.approx((101.5, 230.0)) and flat.apply(100.0, 230.0, -1.0) == pytest.approx((98.5, 233.0))
+    assert adj.as_slopes() == (b, 2 * b)
