@@ -12,6 +12,8 @@ import pandas as pd
 CACHE = Path(".cache")
 CACHE_TTL_HOURS = 24  # nflverse updates nightly (more often only on game days); a finished season never changes
 STATS_URL = "https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_{season}.csv"
+PBP_URL = "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.csv.gz"
+PBP_COLS = ["season", "week", "season_type", "posteam", "defteam", "play_type", "two_point_attempt", "rushing_yards", "passing_yards"]
 GAMES_URL = "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv"
 
 
@@ -71,3 +73,11 @@ def next_matchups(schedule: pd.DataFrame, week: int | None = None) -> tuple[int,
     pairs = [(r.away_team, r.home_team) for r in games.itertuples()]
     pairs += [(h, a) for a, h in pairs]
     return week, pairs
+
+
+def load_pbp(season: int, refresh: bool = False) -> pd.DataFrame:
+    """Regular-season run and pass plays (no 2-point tries), with just the columns the play-level model needs."""
+    ttl = None if season < current_season() else CACHE_TTL_HOURS
+    d = pd.read_csv(_fetch(PBP_URL.format(season=season), f"pbp_{season}.csv.gz", refresh, ttl), usecols=PBP_COLS, low_memory=False)
+    d = d[(d["season_type"] == "REG") & d["posteam"].notna() & d["play_type"].isin(["run", "pass"]) & (d["two_point_attempt"] != 1)]
+    return d.drop(columns=["season_type", "two_point_attempt"]).reset_index(drop=True)

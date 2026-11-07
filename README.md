@@ -83,3 +83,10 @@ rushing as a team is favoured (`lines_mode="transfer"`; "free" / "relative" are 
 
 `uv run python -m analysis.yards_backtest` runs the walk-forward backtest (2025-2026), `analysis.yards_sensitivity` the parameter grids.
 The older modules (`model.py`, `pipeline.py`, ...) are untouched until later modules replace them.
+
+### Module 1b - the same eight numbers from plays (`nflfp/plays.py`)
+
+Splits a team's yards into plays x yards per play, opponent-adjusts each part with the same ridge engine, and puts the Vegas
+adjustment on play volume. `data.load_pbp(season)` supplies the play-by-play. `uv run python -m analysis.plays_backtest` compares it
+with module 1 on the same actual yards. Result (2025-26, weeks 4+): the two tie on accuracy (rush R2 0.046 vs 0.042, pass 0.094 vs 0.094);
+the play-level version additionally exposes expected plays and yards per play (`rush_att_ridge`, `pass_ypa_ridge`, ...) for later modules.

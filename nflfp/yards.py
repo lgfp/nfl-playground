@@ -96,17 +96,19 @@ class Prior:
         return weight * self.off_factor + (1 - weight), weight * self.dfn_factor + (1 - weight)
 
 
-def _fit_side(o, d, y, n, mu, strength, t_off, t_dfn, max_iter, tol) -> tuple[np.ndarray, np.ndarray, int]:
+def _fit_side(o, d, y, n, mu, strength, t_off, t_dfn, max_iter, tol, w=None) -> tuple[np.ndarray, np.ndarray, int]:
+    """Alternating fit of y = mu * off[o] * dfn[d]; `w` optionally weights the games (default 1 each)."""
+    w = np.ones(len(y)) if w is None else np.asarray(w, float)
     off, dfn = t_off.copy(), t_dfn.copy()
-    n_o = np.bincount(o, minlength=n).astype(float)
-    n_d = np.bincount(d, minlength=n).astype(float)
+    n_o = np.bincount(o, weights=w, minlength=n)
+    n_d = np.bincount(d, weights=w, minlength=n)
     it = 0
     for it in range(1, max_iter + 1):
-        num = np.bincount(d, y / (mu * off[o]), n) + strength * t_dfn
+        num = np.bincount(d, w * y / (mu * off[o]), n) + strength * t_dfn
         den = n_d + strength
         new_dfn = np.divide(num, den, out=t_dfn.copy(), where=den > 0)
         new_dfn = new_dfn / new_dfn.mean()
-        num = np.bincount(o, y / (mu * new_dfn[d]), n) + strength * t_off
+        num = np.bincount(o, w * y / (mu * new_dfn[d]), n) + strength * t_off
         den = n_o + strength
         new_off = np.divide(num, den, out=t_off.copy(), where=den > 0)
         new_off = new_off / new_off.mean()
