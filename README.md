@@ -67,3 +67,19 @@ The sandbox must allow `api.open-meteo.com` and `archive-api.open-meteo.com`; re
 
 `uv run python analysis/weather_regression.py [season] [game_ids to drop]` regresses game-level rushing/receiving
 points (and the model's residuals) on roof, temperature, wind, rain and snow. Neutral-site games are excluded.
+
+
+## Module 1 - expected team yards (`nflfp/yards.py`)
+
+The first piece of the planned refactor: expected team **rushing** and **passing yards** for a week, with an iterative
+opponent-adjusted multiplicative model (`MU * OFF[team] * DEF[opp]`). For each game it returns eight numbers: {rush, pass} x
+{plain, ridge} x {no Vegas, Vegas} (`rush_plain`, `rush_ridge`, `rush_plain_vegas`, `rush_ridge_vegas`, same for `pass_`).
+Ridge pulls every team toward a target of 30% its last-season team average and 70% the current league average (adjustable via
+`YardsConfig.prior_weight`, default 0.3), with `ridge_strength` = 8 pseudo-games. The Vegas adjustment moves yards from passing to
+rushing as a team is favoured (`lines_mode="transfer"`; "free" / "relative" are alternatives). Everything uses only earlier games.
+
+    from nflfp import yards as Y
+    out = Y.project_week(games, fixtures, 2026, 9)      # games: Y.team_game_yards(player_weeks), fixtures: Y.fixtures_from_schedule(schedule)
+
+`uv run python -m analysis.yards_backtest` runs the walk-forward backtest (2025-2026), `analysis.yards_sensitivity` the parameter grids.
+The older modules (`model.py`, `pipeline.py`, ...) are untouched until later modules replace them.
