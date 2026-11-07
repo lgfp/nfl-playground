@@ -29,7 +29,7 @@ def actual_points(pw: pd.DataFrame, sc: Scoring) -> pd.DataFrame:
     return a[["player_id", "week", "act", "act_notd", "act_rush_yds", "act_rec_yds", "passing_yards"]]
 
 
-def run(first: int, last: int) -> pd.DataFrame:
+def run(first: int, last: int, active_only: bool = False) -> pd.DataFrame:
     sc = Scoring()
     games, _ = load()
     env = load_env()
@@ -46,7 +46,11 @@ def run(first: int, last: int) -> pd.DataFrame:
         vol = A.sleeper_volume(SEASON, w)
         teams = yards[(yards.season == SEASON) & (yards.week == w)]
         m2 = A.attribute(teams, A.shares(vol, out_statuses=()), A.league_rates(pw[pw.week < w]), sc)
-        td = TA.attribute(ttd[(ttd.season == SEASON) & (ttd.week == w)], TA.shares(plays, SEASON, w))
+        excl = set()
+        if active_only:        # TD shares only among players Sleeper projects with volume that week (the rest are out / inactive)
+            have = set(sleeper.map_ids(dump, known, vol.sleeper_id).values())
+            excl = set(TA.shares(plays, SEASON, w).pid) - have
+        td = TA.attribute(ttd[(ttd.season == SEASON) & (ttd.week == w)], TA.shares(plays, SEASON, w, exclude=excl))
         full = TA.add_touchdowns(m2, td, sleeper.map_ids(dump, known, m2.sleeper_id), sc)
         full["pid"] = full.sleeper_id.map(sleeper.map_ids(dump, known, full.sleeper_id))
         full["week"] = w
