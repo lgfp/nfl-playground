@@ -29,7 +29,7 @@ from .model import Scoring
 
 URL = "https://api.sleeper.app/projections/nfl/{season}/{week}?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE"
 VOLUME = {"rush_att": "carries", "rec_tgt": "targets", "pass_att": "attempts"}
-THEIRS = {"rush_yd": "sl_rush_yds", "rec_yd": "sl_rec_yds", "rec": "sl_receptions", "rush_td": "sl_rush_tds", "rec_td": "sl_rec_tds"}  # Sleeper's own numbers, for comparison only
+THEIRS = {"rush_yd": "sl_rush_yds", "rec_yd": "sl_rec_yds", "rec": "sl_receptions", "rush_td": "sl_rush_tds", "rec_td": "sl_rec_tds", "pass_yd": "sl_pass_yds"}  # Sleeper's own numbers, for comparison only
 
 
 @dataclass(frozen=True)
