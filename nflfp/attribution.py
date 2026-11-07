@@ -29,6 +29,7 @@ from .model import Scoring
 
 URL = "https://api.sleeper.app/projections/nfl/{season}/{week}?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE"
 VOLUME = {"rush_att": "carries", "rec_tgt": "targets", "pass_att": "attempts"}
+THEIRS = {"rush_yd": "sl_rush_yds", "rec_yd": "sl_rec_yds", "rec": "sl_receptions", "rush_td": "sl_rush_tds", "rec_td": "sl_rec_tds"}  # Sleeper's own numbers, for comparison only
 
 
 @dataclass(frozen=True)
@@ -64,8 +65,8 @@ def sleeper_volume(season: int, week: int) -> pd.DataFrame:
             continue
         rows.append(dict(sleeper_id=str(x["player_id"]), name=f'{pl.get("first_name", "")} {pl.get("last_name", "")}'.strip(),
                          position=pl.get("position"), team=team, injury_status=pl.get("injury_status"),
-                         **{v: float(st.get(k, 0.0)) for k, v in VOLUME.items()}))
-    return pd.DataFrame(rows, columns=["sleeper_id", "name", "position", "team", "injury_status", *VOLUME.values()]).drop_duplicates("sleeper_id")
+                         **{v: float(st.get(k, 0.0)) for k, v in {**VOLUME, **THEIRS}.items()}))
+    return pd.DataFrame(rows, columns=["sleeper_id", "name", "position", "team", "injury_status", *VOLUME.values(), *THEIRS.values()]).drop_duplicates("sleeper_id")
 
 
 def shares(volume: pd.DataFrame, exclude: set | frozenset = frozenset(), out_statuses=sleeper.OUT_STATUSES) -> pd.DataFrame:
@@ -96,5 +97,5 @@ def attribute(team_yards: pd.DataFrame, sh: pd.DataFrame, rates: Rates, scoring:
     d["pass_pts"] = scoring.pass_yard * d.pass_yds
     d["exp_pts"] = d.rush_pts + d.rec_pts + d.pass_pts
     cols = ["sleeper_id", "name", "position", "team", "opp", "carries", "targets", "attempts", "carries_share", "targets_share", "attempts_share",
-            "rush_yds", "rec_yds", "pass_yds", "receptions", "rush_pts", "rec_pts", "pass_pts", "exp_pts"]
+            *THEIRS.values(), "rush_yds", "rec_yds", "pass_yds", "receptions", "rush_pts", "rec_pts", "pass_pts", "exp_pts"]
     return d[cols].sort_values("exp_pts", ascending=False).reset_index(drop=True)
