@@ -15,8 +15,8 @@ from nflfp import attribution as A, data, league, sleeper, td_attribution as TA,
 from nflfp.model import Scoring
 
 
-def project(season: int, week: int, scoring: Scoring = Scoring()) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(player table, team table) for the week."""
+def project(season: int, week: int, scoring: Scoring = Scoring(), active_only: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(player table, team table) for the week. active_only: TD shares only among players Sleeper projects with volume that week (plus the Out/IR rule)."""
     games, _ = load()
     teams = TY.project_week(games, load_env(), season, week)                                       # module 1
     plays = T.with_xtd(T.load_plays([season - 1, season]))
@@ -29,8 +29,11 @@ def project(season: int, week: int, scoring: Scoring = Scoring()) -> tuple[pd.Da
     known = pw.sort_values("week").groupby("player_id")[["player_display_name", "team", "position"]].last().reset_index()
     dump = sleeper.load_players()
     out = sleeper.unavailable(dump, known).player_id                                              # Out / IR
-    td = TA.attribute(tteams, TA.shares(plays, season, week, exclude=set(out)))                   # module 4
     id_map = sleeper.map_ids(dump, known, m2.sleeper_id)
+    excl = set(out)
+    if active_only:
+        excl |= set(TA.shares(plays, season, week).pid) - set(id_map.values())
+    td = TA.attribute(tteams, TA.shares(plays, season, week, exclude=excl))                       # module 4
     full = TA.add_touchdowns(m2, td, id_map, scoring)
     full["sl_pts"] = (scoring.yard * (full.sl_rush_yds + full.sl_rec_yds) + scoring.ppr * full.sl_receptions + scoring.pass_yard * full.sl_pass_yds
                       + scoring.td * (full.sl_rush_tds + full.sl_rec_tds) + scoring.pass_td * full.sl_pass_tds)
