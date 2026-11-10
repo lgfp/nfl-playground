@@ -23,7 +23,7 @@ import pandas as pd
 from nflfp import attribution as A, data, sleeper, tds as T
 from nflfp.model import Scoring
 
-SEASONS = (2024, 2025, 2026)
+SEASONS = tuple(range(2020, 2027))            # features exist for SEASONS[1:]; each season's features use that season and the one before
 POS = ("QB", "RB", "WR", "TE")
 SNAP_URL = "https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_{season}.csv"
 OUT = Path(".cache/ml_features.pkl")
@@ -318,8 +318,13 @@ def build() -> pd.DataFrame:
         f = f.merge(_def_granular(d, s), on=["player_id", "season", "week"], how="left")
         f = f.merge(veg, on=["season", "week", "team"], how="left")
         known = d[d.season == s].sort_values("week").groupby("player_id")[["player_display_name", "team", "position"]].last().reset_index()
-        sl = pd.concat([sleeper_points(s, int(w), known, dump) for w in sorted(base.week.unique())], ignore_index=True)
-        parts.append(f.merge(sl, on=["player_id", "season", "week"], how="left"))
+        try:
+            sl = pd.concat([sleeper_points(s, int(w), known, dump) for w in sorted(base.week.unique())], ignore_index=True)
+            f = f.merge(sl, on=["player_id", "season", "week"], how="left")
+        except Exception as e:                                          # no public projections for that season: train without them
+            print(f"no Sleeper projections for {s}: {e}")
+        parts.append(f)
+        print(f"season {s}: {len(f)} player-games")
     F = pd.concat(parts, ignore_index=True)
     return pd.concat([F, pd.DataFrame({f"is_{p}": (F.position == p).astype(float) for p in POS})], axis=1)
 
