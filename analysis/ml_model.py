@@ -31,7 +31,7 @@ POOL_MIN = 4.0
 def feature_sets(F: pd.DataFrame) -> dict[str, list[str]]:
     extra = [c for c in F.columns if c.split("_")[0] in MD.GROUPS]
     base = [c for c in F.columns if c not in ID and c not in MD.AVAIL and c not in extra]
-    return {"base": base, "avail": base + MD.AVAIL, "all": base + MD.AVAIL + extra}
+    return {"base": base, "avail": base + MD.AVAIL, "all": base + MD.AVAIL + extra, "no_gr": base + MD.AVAIL + [c for c in extra if not c.startswith("gr_")]}
 
 
 def gbm(loss="squared_error", seed=0):
@@ -165,6 +165,10 @@ if __name__ == "__main__":
     table(pool[pool.week >= 4], cols, "weeks 4-9")
     x = vs(pool, "ensemble|all", "ensemble|avail")
     print(f"\nall inputs minus the earlier {len(sets['avail'])} inputs, MAE on 2026: {x[0]:+.3f} [{x[1]:+.3f}, {x[2]:+.3f}] (negative = more inputs help)")
+    x = vs(pool, "ensemble|all", "ensemble|no_gr")
+    print(f"with situational detail ({len(sets['all'])} inputs) minus without it ({len(sets['no_gr'])}), MAE on 2026: {x[0]:+.3f} [{x[1]:+.3f}, {x[2]:+.3f}] | "
+          f"MAE {np.abs(pool['ensemble|all'] - pool.pts).mean():.3f} vs {np.abs(pool['ensemble|no_gr'] - pool.pts).mean():.3f}; "
+          f"corr {np.corrcoef(pool['ensemble|all'], pool.pts)[0, 1]:.3f} vs {np.corrcoef(pool['ensemble|no_gr'], pool.pts)[0, 1]:.3f}")
     short = {k: cols[k] for k in ("Sleeper (public)", "ENSEMBLE (trained on 2025)", "ENSEMBLE, ALL INPUTS", "blend: your schedule (wk1 public -> wk9 ours)", "blend: 50-50", "stacked: trees + Sleeper as input")}
     for pos in MD.POS:
         table(pool[pool.position == pos], short, f"{pos}, weeks 1-9")

@@ -35,7 +35,10 @@ AVAIL = ["vac_carry", "vac_target", "qb_new", "gap_games"]
 PBP_COLS = ["season", "week", "season_type", "posteam", "defteam", "play_type", "two_point_attempt", "qb_kneel", "qb_spike", "yardline_100", "rush_touchdown",
             "pass_touchdown", "rusher_player_id", "rusher_player_name", "receiver_player_id", "receiver_player_name", "passer_player_id", "epa", "success", "pass", "rush",
             "pass_oe", "qb_dropback", "qb_scramble", "sack", "air_yards", "yards_after_catch", "yards_gained", "down", "score_differential", "qtr", "fixed_drive",
-            "game_id", "goal_to_go", "cpoe", "interception"]
+            "game_id", "goal_to_go", "cpoe", "interception", "ydstogo", "run_location", "run_gap", "pass_location", "half_seconds_remaining", "shotgun"]
+# finer situational detail per player-game (group "gr"): where on the field, how deep, which down, which direction
+GR = ["car_short", "car_34", "car_early", "car_out", "car_mid", "car_left", "car_own", "car_yl", "car_shotgun",
+      "tgt_behind", "tgt_short", "tgt_int", "tgt_mid", "tgt_early", "tgt_2min", "tgt_own", "tgt_yl"]
 # extra per-game player stats (group "px"): efficiency and finer play-by-play detail
 PX = ["rush_epa", "rec_epa", "car_in10", "tgt_in10", "ez_tgt", "tgt_deep", "yac", "tgt_3rd", "scrambles", "dropbacks", "qb_epa", "cpoe", "sacks_taken", "deep_att", "ints",
       "rz_share", "gl_share", "first_downs"]
@@ -87,7 +90,23 @@ def raw_table(sc: Scoring = Scoring()) -> pd.DataFrame:
     q = q.assign(deep=(q.air_yards >= 20).astype(float)).groupby(k + ["passer_player_id"]).agg(
         dropbacks=("epa", "size"), qb_epa=("epa", "sum"), cpoe=("cpoe", "mean"), sacks_taken=("sack", "sum"), deep_att=("deep", "sum"), ints=("interception", "sum")
     ).reset_index().rename(columns={"passer_player_id": "player_id"})
+    rr = plays[(plays.play_type == "run") & plays.rusher_player_id.notna()]
+    f1 = lambda cond: cond.astype(float)
+    r2 = rr.assign(car_short=f1(rr.ydstogo <= 2), car_34=f1(rr.down >= 3), car_early=f1(rr.down <= 2), car_out=f1(rr.run_gap == "end"), car_mid=f1(rr.run_location == "middle"),
+                   car_left=f1(rr.run_location == "left"), car_own=f1(rr.yardline_100 > 50), car_shotgun=f1(rr.shotgun == 1)).groupby(k + ["rusher_player_id"]).agg(
+        car_short=("car_short", "sum"), car_34=("car_34", "sum"), car_early=("car_early", "sum"), car_out=("car_out", "sum"), car_mid=("car_mid", "sum"),
+        car_left=("car_left", "sum"), car_own=("car_own", "sum"), car_yl=("yardline_100", "mean"), car_shotgun=("car_shotgun", "sum")
+    ).reset_index().rename(columns={"rusher_player_id": "player_id"})
+    cc = plays[(plays.play_type == "pass") & plays.receiver_player_id.notna()]
+    c2 = cc.assign(tgt_behind=f1(cc.air_yards <= 0), tgt_short=f1((cc.air_yards > 0) & (cc.air_yards < 10)), tgt_int=f1((cc.air_yards >= 10) & (cc.air_yards < 20)),
+                   tgt_mid=f1(cc.pass_location == "middle"), tgt_early=f1(cc.down <= 2), tgt_2min=f1(cc.half_seconds_remaining <= 120), tgt_own=f1(cc.yardline_100 > 50)
+                   ).groupby(k + ["receiver_player_id"]).agg(
+        tgt_behind=("tgt_behind", "sum"), tgt_short=("tgt_short", "sum"), tgt_int=("tgt_int", "sum"), tgt_mid=("tgt_mid", "sum"), tgt_early=("tgt_early", "sum"),
+        tgt_2min=("tgt_2min", "sum"), tgt_own=("tgt_own", "sum"), tgt_yl=("yardline_100", "mean")).reset_index().rename(columns={"receiver_player_id": "player_id"})
     d = d.merge(r, on=k + ["player_id"], how="left").merge(c, on=k + ["player_id"], how="left").merge(q, on=k + ["player_id"], how="left")
+    d = d.merge(r2, on=k + ["player_id"], how="left").merge(c2, on=k + ["player_id"], how="left")
+    cnt = [g for g in GR if g not in ("car_yl", "tgt_yl")]
+    d[cnt] = d[cnt].fillna(0.0)
     zero = ["xtd_rush", "gl_car", "rz_car", "xtd_rec", "rz_tgt", "rush_epa", "car_in10", "scrambles", "rec_epa", "tgt_in10", "ez_tgt", "tgt_deep", "yac", "tgt_3rd",
             "dropbacks", "qb_epa", "sacks_taken", "deep_att", "ints"]
     d[zero] = d[zero].fillna(0.0)
@@ -127,6 +146,15 @@ def _player_features(d: pd.DataFrame, s: int) -> pd.DataFrame:
         out[f"px_{c}_m8"] = pg.rolling(8, min_periods=1).mean().reset_index(level=0, drop=True)
         out[f"px_{c}_ew"] = pg.transform(lambda v: v.ewm(halflife=3, ignore_na=True).mean())
     div = lambda a, b: a / b.where(b > 0)
+    for c in GR:                                                        # situational detail: last 8 games, then as a share of his own carries / targets
+        prev = g[c].shift(1)
+        out[f"gr_{c}_m8"] = prev.groupby(x.player_id, sort=False).rolling(8, min_periods=1).mean().reset_index(level=0, drop=True)
+    for c in GR:
+        if c.endswith("_yl"):
+            continue
+        out[f"gr_{c}_sh"] = div(out[f"gr_{c}_m8"], out.carries_m8 if c.startswith("car") else out.targets_m8)
+    out["gr_tgt_deep_sh"], out["gr_tgt_3rd_sh"] = div(out.px_tgt_deep_m8, out.targets_m8), div(out.px_tgt_3rd_m8, out.targets_m8)
+    out["gr_tgt_ez_sh"], out["gr_car_in10_sh"] = div(out.px_ez_tgt_m8, out.targets_m8), div(out.px_car_in10_m8, out.carries_m8)
     opp = out.carries_m8 + out.targets_m8
     out["px_epa_per_opp"] = div(out.px_rush_epa_m8 + out.px_rec_epa_m8, opp)
     out["px_ypc"], out["px_ypt"] = div(out.rush_yds_m8, out.carries_m8), div(out.rec_yds_m8, out.targets_m8)
@@ -201,6 +229,26 @@ def _team_trends(d: pd.DataFrame, s: int, sched: pd.DataFrame) -> pd.DataFrame:
     return rows.merge(out["dfn"].rename(columns={"team": "opp"}), on=["season", "week", "opp"], how="left").drop(columns=["team", "opp"])
 
 
+def _def_granular(d: pd.DataFrame, s: int) -> pd.DataFrame:
+    """What the opposing defense has allowed by pass depth, pass location and run direction (EPA per play, last 8 games), plus its red-zone TD rate."""
+    p = pbp()
+    x = p[p.season.isin([s - 1, s])]
+    ps, ru = x[x.play_type == "pass"], x[x.play_type == "run"]
+    parts = {"deep": ps[ps.air_yards >= 20], "short": ps[ps.air_yards < 10], "int": ps[(ps.air_yards >= 10) & (ps.air_yards < 20)], "mid": ps[ps.pass_location == "middle"],
+             "run_out": ru[ru.run_gap == "end"], "run_mid": ru[ru.run_location == "middle"], "rz": x[x.yardline_100 <= 20], "short_yd": x[x.ydstogo <= 2]}
+    t = None
+    for name, sub in parts.items():
+        a = sub.groupby(["season", "week", "defteam"]).epa.mean().rename(name).reset_index()
+        t = a if t is None else t.merge(a, on=["season", "week", "defteam"], how="outer")
+    dp = ps.assign(deep=(ps.air_yards >= 20).astype(float)).groupby(["season", "week", "defteam"]).deep.mean().rename("deep_rate").reset_index()
+    t = t.merge(dp, on=["season", "week", "defteam"], how="outer").sort_values(["defteam", "season", "week"])
+    f = t[["season", "week", "defteam"]].copy()
+    for c in list(parts) + ["deep_rate"]:
+        f[f"gr_dfn_{c}"] = t.groupby("defteam")[c].shift(1).groupby(t.defteam).rolling(8, min_periods=2).mean().reset_index(level=0, drop=True)
+    rows = d[d.season == s][["player_id", "season", "week", "opp"]]
+    return rows.merge(f[f.season == s].rename(columns={"defteam": "opp"}), on=["season", "week", "opp"], how="left").drop(columns="opp")
+
+
 def _availability(d: pd.DataFrame, s: int) -> pd.DataFrame:
     """Per player-row of season s: share of the team's recent carries / targets held by players who are not playing this game, QB change, and the
     player's own missed team games since he last played. Uses who actually played (known at kickoff from the inactive list)."""
@@ -267,6 +315,7 @@ def build() -> pd.DataFrame:
         f = f.merge(_team_context(d, s).drop(columns=["team", "opp", "position"]), on=["player_id", "season", "week"], how="left")
         f = f.merge(_availability(d, s).drop(columns="team"), on=["player_id", "season", "week"], how="left")
         f = f.merge(_team_trends(d, s, sched), on=["player_id", "season", "week"], how="left")
+        f = f.merge(_def_granular(d, s), on=["player_id", "season", "week"], how="left")
         f = f.merge(veg, on=["season", "week", "team"], how="left")
         known = d[d.season == s].sort_values("week").groupby("player_id")[["player_display_name", "team", "position"]].last().reset_index()
         sl = pd.concat([sleeper_points(s, int(w), known, dump) for w in sorted(base.week.unique())], ignore_index=True)
@@ -276,6 +325,7 @@ def build() -> pd.DataFrame:
 
 
 GROUPS = {"px": "player efficiency and play-by-play detail (EPA, depth, inside-10, shares, trends)", "off": "team offense trends (run/pass mix, EPA, red-zone trips, points)",
+          "gr": "situational detail (field position, target depth, down and distance, run direction) for the player and what the defense allows by depth / direction",
           "dfn": "opposing defense allowed (EPA, red-zone trips, points, pass rate faced)", "env": "game environment (rest, dome, surface, division, opponent implied total)"}
 
 
