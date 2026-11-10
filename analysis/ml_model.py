@@ -29,8 +29,9 @@ POOL_MIN = 4.0
 
 
 def feature_sets(F: pd.DataFrame) -> dict[str, list[str]]:
-    base = [c for c in F.columns if c not in ID and c not in MD.AVAIL]
-    return {"base": base, "avail": base + MD.AVAIL}
+    extra = [c for c in F.columns if c.split("_")[0] in MD.GROUPS]
+    base = [c for c in F.columns if c not in ID and c not in MD.AVAIL and c not in extra]
+    return {"base": base, "avail": base + MD.AVAIL, "all": base + MD.AVAIL + extra}
 
 
 def gbm(loss="squared_error", seed=0):
@@ -104,7 +105,7 @@ if __name__ == "__main__":
     F = F[F.n_hist >= 1].reset_index(drop=True)                    # at least one earlier game since last season
     tr, te = F[F.season == 2025].copy(), F[F.season == 2026].copy()
     sets = feature_sets(F)
-    print(f"train: {len(tr)} player-games of 2025; test: {len(te)} of 2026 (weeks {te.week.min()}-{te.week.max()}); features: base {len(sets['base'])}, with availability {len(sets['avail'])}")
+    print(f"train: {len(tr)} player-games of 2025; test: {len(te)} of 2026 (weeks {te.week.min()}-{te.week.max()}); inputs: base {len(sets['base'])}, with availability {len(sets['avail'])}, with everything {len(sets['all'])}")
 
     P = te[ID].copy()
     for tag, feats in sets.items():
@@ -131,6 +132,12 @@ if __name__ == "__main__":
     print(f"\n2025 (out-of-fold, n={len(t2)}): MAE Sleeper {np.abs(t2.sl - t2.pts).mean():.3f} | ensemble {np.abs(t2.ml - t2.pts).mean():.3f} | "
           f"least-squares weight on our model {w_ml:.2f} | MAE-best weight {w_mae:.1f} (MAE {grid[w_mae]:.3f})")
     print("   2025 MAE by weight on our model:", {k: round(v, 3) for k, v in grid.items()})
+    o_all = oof(tr, sets["all"])
+    t3 = tr.assign(ml=o["ensemble"], ml_all=o_all["ensemble"])
+    t3 = t3[t3.sl >= POOL_MIN]
+    print(f"2025 out-of-fold, same games: MAE with {len(sets['avail'])} inputs {np.abs(t3.ml - t3.pts).mean():.3f} | with all {len(sets['all'])} inputs {np.abs(t3.ml_all - t3.pts).mean():.3f} | "
+          f"corr {np.corrcoef(t3.ml, t3.pts)[0, 1]:.3f} vs {np.corrcoef(t3.ml_all, t3.pts)[0, 1]:.3f}")
+    P["blend|50-50 all"] = 0.5 * P.sl + 0.5 * P["ensemble|all"]
     pub = np.clip((9 - P.week) / 8, 0, 1)                           # the user's schedule: week 1 all public, week 9 on none
     P["blend|schedule"] = pub * P.sl + (1 - pub) * P[best]
     P["blend|50-50"] = 0.5 * P.sl + 0.5 * P[best]
@@ -142,17 +149,23 @@ if __name__ == "__main__":
     P.loc[tes.index, "stacked|trees+Sleeper"] = np.mean([gbm("squared_error", s).fit(trs[sf], trs.pts).predict(tes[sf]) for s in range(3)], axis=0).clip(min=0)
     P.loc[tes.index, "stacked|Sleeper recalibrated"] = np.mean([gbm("squared_error", s).fit(trs[SL_FEATS + ["is_QB", "is_RB", "is_WR", "is_TE"]], trs.pts).predict(
         tes[SL_FEATS + ["is_QB", "is_RB", "is_WR", "is_TE"]]) for s in range(3)], axis=0).clip(min=0)
+    sfa = sets["all"] + SL_FEATS
+    P.loc[tes.index, "stacked|all+Sleeper"] = np.mean([gbm("squared_error", s).fit(trs[sfa], trs.pts).predict(tes[sfa]) for s in range(3)], axis=0).clip(min=0)
     P.to_pickle("/tmp/ml_preds.pkl")
 
     pool = P[(P.sl >= POOL_MIN)].dropna(subset=[best, "stacked|trees+Sleeper"])
     cols = {"Sleeper (public)": "sl", "ridge": "ridge|avail", "trees": "trees|avail", "trees, Poisson": "trees_poisson|avail", "neural net": "neural_net|avail",
-            "ENSEMBLE (trained on 2025)": "ensemble|avail", "ensemble, no availability inputs": "ensemble|base", "trees, refit every week (walk-forward)": "trees|avail|walk-forward",
+            "ENSEMBLE (trained on 2025)": "ensemble|avail", "ensemble, no availability inputs": "ensemble|base",
+            "ENSEMBLE, ALL INPUTS": "ensemble|all", "  ridge, all inputs": "ridge|all", "  trees, all inputs": "trees|all", "  neural net, all inputs": "neural_net|all",
+            "blend: 50-50 with all inputs": "blend|50-50 all", "stacked: trees + all inputs + Sleeper": "stacked|all+Sleeper", "trees, refit every week (walk-forward)": "trees|avail|walk-forward",
             "blend: your schedule (wk1 public -> wk9 ours)": "blend|schedule", "blend: 50-50": "blend|50-50", f"blend: weight learned on 2025 ({w_ml:.2f} ours)": "blend|learned",
             "stacked: trees + Sleeper as input": "stacked|trees+Sleeper", "Sleeper recalibrated only": "stacked|Sleeper recalibrated"}
     table(pool, cols, f"2026 weeks 1-9, players Sleeper projects at {POOL_MIN:.0f}+ who played")
     table(pool[pool.week <= 3], cols, "weeks 1-3")
     table(pool[pool.week >= 4], cols, "weeks 4-9")
-    short = {k: cols[k] for k in ("Sleeper (public)", "ENSEMBLE (trained on 2025)", "blend: your schedule (wk1 public -> wk9 ours)", "blend: 50-50", "stacked: trees + Sleeper as input")}
+    x = vs(pool, "ensemble|all", "ensemble|avail")
+    print(f"\nall inputs minus the earlier {len(sets['avail'])} inputs, MAE on 2026: {x[0]:+.3f} [{x[1]:+.3f}, {x[2]:+.3f}] (negative = more inputs help)")
+    short = {k: cols[k] for k in ("Sleeper (public)", "ENSEMBLE (trained on 2025)", "ENSEMBLE, ALL INPUTS", "blend: your schedule (wk1 public -> wk9 ours)", "blend: 50-50", "stacked: trees + Sleeper as input")}
     for pos in MD.POS:
         table(pool[pool.position == pos], short, f"{pos}, weeks 1-9")
     try:                                                               # the hand-built modules 1-4 on the weeks we have them for (4-8)
@@ -164,8 +177,12 @@ if __name__ == "__main__":
         pass
     # what the trees lean on (permutation importance on 2026, squared error)
     from sklearn.inspection import permutation_importance
-    m = gbm().fit(tr[sets["avail"]], tr.pts)
-    imp = permutation_importance(m, te[sets["avail"]], te.pts, n_repeats=5, random_state=0, scoring="neg_mean_absolute_error")
-    top = pd.Series(imp.importances_mean, index=sets["avail"]).sort_values(ascending=False).head(15)
+    m = gbm().fit(tr[sets["all"]], tr.pts)
+    imp = permutation_importance(m, te[sets["all"]], te.pts, n_repeats=5, random_state=0, scoring="neg_mean_absolute_error")
+    imp = pd.Series(imp.importances_mean, index=sets["all"])
+    grp = imp.groupby(lambda c: c.split("_")[0] if c.split("_")[0] in MD.GROUPS else ("availability" if c in MD.AVAIL else "original usage/context")).sum()
+    print("\nshare of the trees' reliance by input group (sum of permutation importance):")
+    print((grp / grp.sum()).round(3).sort_values(ascending=False).to_string())
+    top = imp.sort_values(ascending=False).head(15)
     print("\ninputs the trees lean on most (rise in MAE when the input is shuffled, 2026):")
     print(top.round(3).to_string())
