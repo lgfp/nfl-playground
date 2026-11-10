@@ -9,6 +9,9 @@ dependencies = ["pandas>=2.2", "numpy>=1.26"]
 nflfp = "nflfp.__main__:main"
 
 [dependency-groups]
+analysis = [
+    "scikit-learn>=1.9.1",
+]
 dev = ["pytest>=8"]
 
 [build-system]
