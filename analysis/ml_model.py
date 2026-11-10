@@ -32,10 +32,11 @@ def feature_sets(F: pd.DataFrame) -> dict[str, list[str]]:
     grp = lambda c: c.split("_")[0]
     extra = [c for c in F.columns if grp(c) in MD.GROUPS]
     base = [c for c in F.columns if c not in ID and c not in MD.AVAIL and c not in extra]
-    mid = [c for c in extra if grp(c) not in ("gr", "qbs")]
-    gr, qbs = [c for c in extra if grp(c) == "gr"], [c for c in extra if grp(c) == "qbs"]
+    mid = [c for c in extra if grp(c) not in ("gr", "qbs", "ol")]
+    gr, qbs, ol = [c for c in extra if grp(c) == "gr"], [c for c in extra if grp(c) == "qbs"], [c for c in extra if grp(c) == "ol"]
     avail = base + MD.AVAIL
-    return {"base": base, "avail": avail, "no_gr": avail + mid, "all": avail + mid + gr, "avail+qb": avail + qbs, "no_gr+qb": avail + mid + qbs}
+    return {"base": base, "avail": avail, "no_gr": avail + mid, "all": avail + mid + gr, "avail+qb": avail + qbs, "no_gr+qb": avail + mid + qbs,
+            "avail+qb+ol": avail + qbs + ol}
 
 
 def gbm(loss="squared_error", seed=0):

@@ -267,6 +267,40 @@ def _quarterback(d: pd.DataFrame, s: int) -> pd.DataFrame:
     return x[x.season == s][["player_id", "season", "week", "qb_id", "qbs_together", "qbs_tshare_with", "qbs_pts_with", "qbs_same_last"]]
 
 
+OL_POS = ("T", "G", "C", "OL")
+
+
+def _oline(s: int) -> pd.DataFrame:
+    """Offensive-line stability per team-game of season s, from snap counts of seasons s-1 and s. The five linemen with the most snaps are the starters.
+    ol_same5: today's starters who also started the team's previous game (known at kickoff); ol_combo_games: earlier games this exact five started together;
+    ol_exp: average earlier starts of today's five; ol_cont_m4: average of ol_same5 over the previous 4 games; ol_used: different starters used so far this season."""
+    parts = []
+    for y in (s - 1, s):
+        x = pd.read_csv(Path(f".cache/snaps_{y}.csv"))
+        parts.append(x[(x.game_type == "REG") & x.position.isin(OL_POS) & (x.offense_snaps > 0)])
+    x = pd.concat(parts)
+    rows = []
+    for team, tg in x.groupby("team"):
+        hist, starts, used, prev, cont = {}, {}, set(), None, []
+        last_season = None
+        for (season, week), g in sorted(tg.groupby(["season", "week"]), key=lambda kv: kv[0]):
+            if season != last_season:
+                used, last_season = set(), season
+            five = frozenset(g.sort_values("offense_snaps", ascending=False).pfr_player_id.head(5))
+            same = float(len(five & prev)) if prev is not None else np.nan
+            rows.append(dict(season=season, week=week, team=team, ol_same5=same, ol_combo_games=float(hist.get(five, 0)),
+                             ol_exp=float(np.mean([starts.get(p, 0) for p in five])), ol_cont_m4=float(np.mean(cont[-4:])) if cont else np.nan, ol_used=float(len(used))))
+            hist[five] = hist.get(five, 0) + 1
+            for p in five:
+                starts[p] = starts.get(p, 0) + 1
+            used |= five
+            if not np.isnan(same):
+                cont.append(same)
+            prev = five
+    o = pd.DataFrame(rows)
+    return o[o.season == s]
+
+
 def _availability(d: pd.DataFrame, s: int) -> pd.DataFrame:
     """Per player-row of season s: share of the team's recent carries / targets held by players who are not playing this game, QB change, and the
     player's own missed team games since he last played. Uses who actually played (known at kickoff from the inactive list)."""
@@ -334,6 +368,7 @@ def build() -> pd.DataFrame:
         f = f.merge(_availability(d, s).drop(columns="team"), on=["player_id", "season", "week"], how="left")
         f = f.merge(_team_trends(d, s, sched), on=["player_id", "season", "week"], how="left")
         f = f.merge(_def_granular(d, s), on=["player_id", "season", "week"], how="left")
+        f = f.merge(_oline(s), on=["season", "week", "team"], how="left")
         f = f.merge(_quarterback(d, s), on=["player_id", "season", "week"], how="left")
         form = f[f.player_id == f.qb_id][["season", "week", "team"] + QB_FORM].rename(columns={c: f"qbs_{c}" for c in QB_FORM}).drop_duplicates(["season", "week", "team"])
         f = f.merge(form, on=["season", "week", "team"], how="left").drop(columns="qb_id")      # the QB's own recent form, given to every teammate
@@ -350,7 +385,8 @@ def build() -> pd.DataFrame:
     return pd.concat([F, pd.DataFrame({f"is_{p}": (F.position == p).astype(float) for p in POS})], axis=1)
 
 
-GROUPS = {"qbs": "the quarterback: his recent form and efficiency, experience, and the player's history with him",
+GROUPS = {"ol": "offensive-line stability (same five starters as last game, games together, experience, recent continuity)",
+          "qbs": "the quarterback: his recent form and efficiency, experience, and the player's history with him",
           "px": "player efficiency and play-by-play detail (EPA, depth, inside-10, shares, trends)", "off": "team offense trends (run/pass mix, EPA, red-zone trips, points)",
           "gr": "situational detail (field position, target depth, down and distance, run direction) for the player and what the defense allows by depth / direction",
           "dfn": "opposing defense allowed (EPA, red-zone trips, points, pass rate faced)", "env": "game environment (rest, dome, surface, division, opponent implied total)"}
