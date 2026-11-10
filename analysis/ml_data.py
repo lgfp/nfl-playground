@@ -249,6 +249,24 @@ def _def_granular(d: pd.DataFrame, s: int) -> pd.DataFrame:
     return rows.merge(f[f.season == s].rename(columns={"defteam": "opp"}), on=["season", "week", "opp"], how="left").drop(columns="opp")
 
 
+QB_FORM = ["pts_ew", "pts_m8", "pts_prev", "pass_yds_m8", "pass_att_m8", "pass_td_m8", "rush_yds_m8", "px_qb_epa_per_db", "px_cpoe_m8", "px_ypa", "px_sacks_taken_m8",
+           "px_ints_m8", "px_deep_att_m8", "n_hist", "n_cur"]
+
+
+def _quarterback(d: pd.DataFrame, s: int) -> pd.DataFrame:
+    """Who is the quarterback (the team's main passer in that game, known at kickoff) and the player's history with him, from seasons s-1 and s:
+    games played together, his target share in those games, and whether it is the same QB as in the player's previous game."""
+    x = d[d.season.isin([s - 1, s])]
+    mp = x[x.pass_att > 0].sort_values("pass_att").groupby(["season", "week", "team"]).player_id.last().rename("qb_id").reset_index()
+    x = x.merge(mp, on=["season", "week", "team"], how="left").sort_values(["player_id", "season", "week"])
+    g = x.groupby(["player_id", "qb_id"], sort=False)
+    x["qbs_together"] = g.cumcount().astype(float)
+    x["qbs_tshare_with"] = g.target_share.transform(lambda v: v.shift(1).expanding().mean())
+    x["qbs_pts_with"] = g.pts.transform(lambda v: v.shift(1).expanding().mean())
+    x["qbs_same_last"] = (x.groupby("player_id").qb_id.shift(1) == x.qb_id).astype(float)
+    return x[x.season == s][["player_id", "season", "week", "qb_id", "qbs_together", "qbs_tshare_with", "qbs_pts_with", "qbs_same_last"]]
+
+
 def _availability(d: pd.DataFrame, s: int) -> pd.DataFrame:
     """Per player-row of season s: share of the team's recent carries / targets held by players who are not playing this game, QB change, and the
     player's own missed team games since he last played. Uses who actually played (known at kickoff from the inactive list)."""
@@ -316,6 +334,9 @@ def build() -> pd.DataFrame:
         f = f.merge(_availability(d, s).drop(columns="team"), on=["player_id", "season", "week"], how="left")
         f = f.merge(_team_trends(d, s, sched), on=["player_id", "season", "week"], how="left")
         f = f.merge(_def_granular(d, s), on=["player_id", "season", "week"], how="left")
+        f = f.merge(_quarterback(d, s), on=["player_id", "season", "week"], how="left")
+        form = f[f.player_id == f.qb_id][["season", "week", "team"] + QB_FORM].rename(columns={c: f"qbs_{c}" for c in QB_FORM}).drop_duplicates(["season", "week", "team"])
+        f = f.merge(form, on=["season", "week", "team"], how="left").drop(columns="qb_id")      # the QB's own recent form, given to every teammate
         f = f.merge(veg, on=["season", "week", "team"], how="left")
         known = d[d.season == s].sort_values("week").groupby("player_id")[["player_display_name", "team", "position"]].last().reset_index()
         try:
@@ -329,7 +350,8 @@ def build() -> pd.DataFrame:
     return pd.concat([F, pd.DataFrame({f"is_{p}": (F.position == p).astype(float) for p in POS})], axis=1)
 
 
-GROUPS = {"px": "player efficiency and play-by-play detail (EPA, depth, inside-10, shares, trends)", "off": "team offense trends (run/pass mix, EPA, red-zone trips, points)",
+GROUPS = {"qbs": "the quarterback: his recent form and efficiency, experience, and the player's history with him",
+          "px": "player efficiency and play-by-play detail (EPA, depth, inside-10, shares, trends)", "off": "team offense trends (run/pass mix, EPA, red-zone trips, points)",
           "gr": "situational detail (field position, target depth, down and distance, run direction) for the player and what the defense allows by depth / direction",
           "dfn": "opposing defense allowed (EPA, red-zone trips, points, pass rate faced)", "env": "game environment (rest, dome, surface, division, opponent implied total)"}
 

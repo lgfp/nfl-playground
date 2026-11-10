@@ -29,9 +29,13 @@ POOL_MIN = 4.0
 
 
 def feature_sets(F: pd.DataFrame) -> dict[str, list[str]]:
-    extra = [c for c in F.columns if c.split("_")[0] in MD.GROUPS]
+    grp = lambda c: c.split("_")[0]
+    extra = [c for c in F.columns if grp(c) in MD.GROUPS]
     base = [c for c in F.columns if c not in ID and c not in MD.AVAIL and c not in extra]
-    return {"base": base, "avail": base + MD.AVAIL, "all": base + MD.AVAIL + extra, "no_gr": base + MD.AVAIL + [c for c in extra if not c.startswith("gr_")]}
+    mid = [c for c in extra if grp(c) not in ("gr", "qbs")]
+    gr, qbs = [c for c in extra if grp(c) == "gr"], [c for c in extra if grp(c) == "qbs"]
+    avail = base + MD.AVAIL
+    return {"base": base, "avail": avail, "no_gr": avail + mid, "all": avail + mid + gr, "avail+qb": avail + qbs, "no_gr+qb": avail + mid + qbs}
 
 
 def gbm(loss="squared_error", seed=0):
