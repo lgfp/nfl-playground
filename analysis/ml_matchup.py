@@ -4,7 +4,7 @@ Every player gets a distribution (analysis/ml_dist.py: quantile models around th
 on opposite sides of the same game move together as they have since 2021 (QB-WR same team about +0.4, and so on; Gaussian copula), everyone else independently.
 All legal lineups from your roster are scored against the same simulated opponent totals, so their win probabilities are directly comparable.
 
-    uv run python -m analysis.ml_matchup <username> [week] [--taxi] [--sims 100000]
+    uv run python -m analysis.ml_matchup <username> [week] [--taxi] [--sims 100000] [--version simple|scaled|medium]
 Kickers and defenses are not modelled: each side gets the same independent draw (K 8 +/- 4, DEF 7.5 +/- 5.5), or the real score if already played.
 """
 from __future__ import annotations
@@ -28,20 +28,16 @@ warnings.filterwarnings("ignore")
 SLOTS = {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 2}
 
 
-def distributions(rows: pd.DataFrame, simple: bool = False) -> pd.DataFrame:
-    """Adds the quantile columns (and bust / boom) to pre-game rows."""
-    F = pd.read_pickle(MD.OUT)
-    F = F[F.n_hist >= 1].reset_index(drop=True)
-    feats = feature_sets(F)["avail+qb+cal"]
-    X = DI.add_proj(F.merge(pd.read_pickle(DI.PROJ), on=["player_id", "season", "week"], how="left"))
+def distributions(rows: pd.DataFrame, version: str = DI.VERSION) -> pd.DataFrame:
+    """Adds the quantile columns, bust / boom and `rel` (relative volatility; 1.0 = typical for his position and projection) to pre-game rows."""
+    X, R = DI.prepare(rows)
     tr = X[X.season.between(*DI.TRAIN) & X.sl.notna()]
-    cols = DI.SIMPLE if simple else DI.full_cols(feats)
-    models = DI.fit_quantiles(tr, cols, simple)
-    r = DI.add_proj(rows.assign(ens=rows.ensemble))
-    Q = DI.predict_quantiles(models, r, cols)
-    r = r.join(Q)
-    r["bust"], r["boom"] = r[f"q{int(DI.LO * 100):02d}"], r[f"q{int(DI.HI * 100):02d}"]
-    return r
+    Q = DI.fit_version(tr, version)(R)
+    if "rel" not in Q:
+        Q["rel"] = 1.0
+    R = R.join(Q)
+    R["bust"], R["boom"] = R[f"q{int(DI.LO * 100):02d}"], R[f"q{int(DI.HI * 100):02d}"]
+    return R
 
 
 def correlation(players: pd.DataFrame, H: pd.DataFrame) -> np.ndarray:
@@ -80,7 +76,7 @@ if __name__ == "__main__":
     week = int(args[1]) if len(args) > 1 else sleeper.get("state/nfl")["week"]
     taxi_ok = "--taxi" in sys.argv
     N = int(sys.argv[sys.argv.index("--sims") + 1]) if "--sims" in sys.argv else 100000
-    simple = "--simple" in sys.argv
+    version = sys.argv[sys.argv.index("--version") + 1] if "--version" in sys.argv else DI.VERSION
     dump = sleeper.load_players()
     uid = sleeper.user_id(user)
     lg = sleeper.get(f"user/{uid}/leagues/nfl/{SEASON}")[0]
@@ -89,7 +85,7 @@ if __name__ == "__main__":
     mu = sleeper.get(f"league/{lg['league_id']}/matchups/{week}")
     mine_m = next(x for x in mu if x["roster_id"] == me["roster_id"])
     opp_m = next(x for x in mu if x["matchup_id"] == mine_m["matchup_id"] and x["roster_id"] != me["roster_id"])
-    rows = distributions(week_rows(week), simple).dropna(subset=["sleeper_id"]).set_index("sleeper_id")
+    rows = distributions(week_rows(week), version).dropna(subset=["sleeper_id"]).set_index("sleeper_id")
     nm = lambda s: f'{dump.get(s, {}).get("first_name", "")} {dump.get(s, {}).get("last_name", "")}'.strip()
     skip = set(me.get("reserve") or []) | (set() if taxi_ok else set(me.get("taxi") or []))
     my_ids = [s for s in me["players"] if s in rows.index and s not in skip]
@@ -102,14 +98,15 @@ if __name__ == "__main__":
     P["name"] = [nm(s) for s in ids]
     P["side"] = ["me"] * len(my_ids) + ["opp"] * (len(ids) - len(my_ids))
     qc = DI.qcols()
-    show = P[["name", "position", "team", "opp", "side", "sl", "ensemble", "proj", "bust", "boom", "q25", "q50", "q75"]].copy()
+    show = P[["name", "position", "team", "opp", "side", "sl", "ensemble", "proj", "bust", "boom", "q25", "q50", "q75", "rel"]].copy()
     show["start"] = ["S" if s in set(mine_m["starters"]) | set(opp_m["starters"]) else "" for s in ids]
-    print(f"{lg['name']}, week {week}. bust / boom = {int(DI.LO * 100)}th / {int(DI.HI * 100)}th percentile (a {int((DI.HI - DI.LO) * 100)}% interval); projected = blend of our ensemble and Sleeper\n")
+    print(f"{lg['name']}, week {week}. bust / boom = {int(DI.LO * 100)}th / {int(DI.HI * 100)}th percentile (a {round((DI.HI - DI.LO) * 100)}% interval); projected = blend of our ensemble and Sleeper\n")
     for side, lab in (("me", "YOUR ROSTER"), ("opp", "OPPONENT'S STARTERS")):
         d = show[show.side == side].sort_values("proj", ascending=False)
         print(lab)
-        print(d[["name", "position", "team", "opp", "start", "bust", "proj", "boom", "q25", "q50", "q75", "sl", "ensemble"]].rename(
-            columns={"position": "pos", "start": "S", "proj": "projected", "q25": "25th", "q50": "median", "q75": "75th", "sl": "sleeper", "ensemble": "ours"}).to_string(index=False, float_format="{:.1f}".format))
+        print(d[["name", "position", "team", "opp", "start", "bust", "proj", "boom", "q25", "q50", "q75", "rel", "sl", "ensemble"]].rename(
+            columns={"position": "pos", "start": "S", "proj": "projected", "q25": "25th", "q50": "median", "q75": "75th", "rel": "volatility", "sl": "sleeper",
+                     "ensemble": "ours"}).to_string(index=False, formatters={"volatility": "{:.2f}".format}, float_format="{:.1f}".format))
         print()
     if no_row:
         print("not available to start (bye, out, or excluded):", "; ".join(no_row))
@@ -179,4 +176,4 @@ if __name__ == "__main__":
         wo = max((r[1] for r in res if s not in r[0]), default=np.nan)
         out.append((mine.name.loc[s], mine.position.loc[s], w, wo))
     for name, pos, w, wo in sorted(out, key=lambda t: -(t[2] - t[3]) if np.isfinite(t[3]) else -9):
-        print(f"  {name:20s} {pos}  with {w * 100:5.1f}% | without {wo * 100:5.1f}% | {((w - wo) * 100 if np.isfinite(wo) else float('nan')):+5.1f}")
+        print(f"  {name:20s} {pos}  with {w * 100:5.1f}% | " + (f"without {wo * 100:5.1f}% | {(w - wo) * 100:+5.1f}" if np.isfinite(wo) else "no alternative at his position"))
