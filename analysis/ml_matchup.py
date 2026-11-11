@@ -4,7 +4,7 @@ Every player gets a distribution (analysis/ml_dist.py: quantile models around th
 on opposite sides of the same game move together as they have since 2021 (QB-WR same team about +0.4, and so on; Gaussian copula), everyone else independently.
 All legal lineups from your roster are scored against the same simulated opponent totals, so their win probabilities are directly comparable.
 
-    uv run python -m analysis.ml_matchup <username> [week] [--taxi] [--sims 100000] [--version simple|scaled|medium]
+    uv run python -m analysis.ml_matchup <username> [week] [--taxi] [--sims 100000] [--version simple|scaled|medium|components] [--espn]
 Kickers and defenses are not modelled: each side gets the same independent draw (K 8 +/- 4, DEF 7.5 +/- 5.5), or the real score if already played.
 """
 from __future__ import annotations
@@ -121,7 +121,6 @@ if __name__ == "__main__":
     C = correlation(P, H)
     rng = np.random.default_rng(0)
     U = norm.cdf(rng.multivariate_normal(np.zeros(len(P)), C, size=N))
-    S = pd.DataFrame(DI.sample(P[qc].to_numpy(float), U), columns=ids)
     extra = lambda mean, sd: np.maximum(rng.normal(mean, sd, N), 0)
     pts_of = lambda m: dict(zip(m["starters"], m.get("starters_points") or [0] * len(m["starters"])))
 
@@ -137,46 +136,82 @@ if __name__ == "__main__":
 
     my_kd, my_note = k_def(mine_m)
     op_kd, op_note = k_def(opp_m)
-    opp_total = S[opp_ids].sum(axis=1).to_numpy() + op_kd
-    mine = P.loc[my_ids]
-    Sm = S[my_ids].to_numpy()
-    col = {s: i for i, s in enumerate(my_ids)}
-    res = []
-    for lu in legal_lineups(mine):
-        t = Sm[:, [col[s] for s in lu]].sum(axis=1) + my_kd
-        res.append((lu, float((t > opp_total).mean()), float(t.mean()), float(np.percentile(t, 5)), float(np.percentile(t, 95))))
-    res.sort(key=lambda r: -r[1])
-    best = res[0]
-    cur = tuple(s for s in mine_m["starters"] if s in col)
-    cur_r = next((r for r in res if set(r[0]) == set(cur)), None)
-    best_mean = max(res, key=lambda r: r[2])
-    tb = Sm[:, [col[s] for s in best[0]]].sum(axis=1) + my_kd
-    print(f"SIMULATION: {N:,} games, {len(res)} legal lineups. Opponent: expected {opp_total.mean():.1f}, 90% range {np.percentile(opp_total, 5):.0f}-{np.percentile(opp_total, 95):.0f} "
-          f"(K/DEF: {', '.join(op_note)}). Yours K/DEF: {', '.join(my_note)}\n")
-    label = lambda lu: ", ".join(mine.name.loc[list(lu)])
-    print("lineups most likely to win:")
-    for i, (lu, pw, mu_, lo, hi) in enumerate(res[:8], 1):
-        t = Sm[:, [col[s] for s in lu]].sum(axis=1) + my_kd
-        d = (t > opp_total).astype(float) - (tb > opp_total).astype(float)
-        diff = "" if i == 1 else f" | vs best {d.mean() * 100:+.2f} pts (+/-{2 * d.std() / np.sqrt(N) * 100:.2f})"
-        swap = "" if i == 1 else "  [" + "; ".join(f"{mine.name.loc[a]} for {mine.name.loc[b]}" for a, b in zip(sorted(set(lu) - set(best[0])), sorted(set(best[0]) - set(lu)))) + "]"
-        print(f"  {i}. P(win) {pw * 100:5.1f}% | expected {mu_:6.1f} | 90% range {lo:.0f}-{hi:.0f}{diff}{swap}")
-        if i == 1:
-            print("       " + label(lu))
-    if cur_r:
-        rank = res.index(cur_r) + 1
-        t = Sm[:, [col[s] for s in cur_r[0]]].sum(axis=1) + my_kd
-        d = (t > opp_total).astype(float) - (tb > opp_total).astype(float)
-        print(f"\nyour current lineup: rank {rank} of {len(res)}, P(win) {cur_r[1] * 100:.1f}% ({d.mean() * 100:+.2f} pts vs the best, +/-{2 * d.std() / np.sqrt(N) * 100:.2f}), expected {cur_r[2]:.1f}")
-        chg = [f"{mine.name.loc[a]} in for {mine.name.loc[b]}" for a, b in zip(sorted(set(best[0]) - set(cur)), sorted(set(cur) - set(best[0])))]
-        print("  changes to reach the best lineup:", "; ".join(chg) if chg else "none")
-    print(f"highest expected points: {best_mean[2]:.1f}, P(win) {best_mean[1] * 100:.1f}%" + ("  (same lineup as the most likely to win)" if set(best_mean[0]) == set(best[0]) else "  -> " + label(best_mean[0])))
-    # each player's value: best lineup with him vs best lineup without him
-    print("\neach player's effect: best P(win) among lineups that include him minus best among lineups without him")
-    out = []
-    for s in my_ids:
-        w = max((r[1] for r in res if s in r[0]), default=np.nan)
-        wo = max((r[1] for r in res if s not in r[0]), default=np.nan)
-        out.append((mine.name.loc[s], mine.position.loc[s], w, wo))
-    for name, pos, w, wo in sorted(out, key=lambda t: -(t[2] - t[3]) if np.isfinite(t[3]) else -9):
-        print(f"  {name:20s} {pos}  with {w * 100:5.1f}% | " + (f"without {wo * 100:5.1f}% | {(w - wo) * 100:+5.1f}" if np.isfinite(wo) else "no alternative at his position"))
+    cur = tuple(s for s in mine_m["starters"] if s in set(my_ids))
+    lineups = list(legal_lineups(P.loc[my_ids]))
+    label = lambda lu: ", ".join(P.name.loc[list(lu)])
+
+    def run(Qm: np.ndarray, title: str, verbose: bool):
+        S = pd.DataFrame(DI.sample(Qm, U), columns=ids)
+        opp_total = S[opp_ids].sum(axis=1).to_numpy() + op_kd
+        mine = P.loc[my_ids]
+        Sm = S[my_ids].to_numpy()
+        col = {s: i for i, s in enumerate(my_ids)}
+        res = []
+        for lu in lineups:
+            t = Sm[:, [col[s] for s in lu]].sum(axis=1) + my_kd
+            res.append((lu, float((t > opp_total).mean()), float(t.mean()), float(np.percentile(t, 5)), float(np.percentile(t, 95))))
+        res.sort(key=lambda r: -r[1])
+        best = res[0]
+        tb = Sm[:, [col[s] for s in best[0]]].sum(axis=1) + my_kd
+        cur_r = next((r for r in res if set(r[0]) == set(cur)), None)
+        print(f"\n=== {title}: {N:,} games, {len(res)} legal lineups. Opponent expected {opp_total.mean():.1f} (90% range {np.percentile(opp_total, 5):.0f}-{np.percentile(opp_total, 95):.0f}) "
+              f"| K/DEF: theirs {', '.join(op_note)}; yours {', '.join(my_note)}")
+        print("lineups most likely to win:")
+        for i, (lu, pw, mu_, lo, hi) in enumerate(res[:(8 if verbose else 4)], 1):
+            t = Sm[:, [col[s] for s in lu]].sum(axis=1) + my_kd
+            d = (t > opp_total).astype(float) - (tb > opp_total).astype(float)
+            diff = "" if i == 1 else f" | vs best {d.mean() * 100:+.2f} pts (+/-{2 * d.std() / np.sqrt(N) * 100:.2f})"
+            swap = "" if i == 1 else "  [" + "; ".join(f"{mine.name.loc[a]} for {mine.name.loc[b]}" for a, b in zip(sorted(set(lu) - set(best[0])), sorted(set(best[0]) - set(lu)))) + "]"
+            print(f"  {i}. P(win) {pw * 100:5.1f}% | expected {mu_:6.1f} | 90% range {lo:.0f}-{hi:.0f}{diff}{swap}")
+            if i == 1:
+                print("       " + label(lu))
+        if cur_r:
+            t = Sm[:, [col[s] for s in cur_r[0]]].sum(axis=1) + my_kd
+            d = (t > opp_total).astype(float) - (tb > opp_total).astype(float)
+            chg = [f"{mine.name.loc[a]} in for {mine.name.loc[b]}" for a, b in zip(sorted(set(best[0]) - set(cur)), sorted(set(cur) - set(best[0])))]
+            print(f"your current lineup: rank {res.index(cur_r) + 1} of {len(res)}, P(win) {cur_r[1] * 100:.1f}% ({d.mean() * 100:+.2f} vs the best, +/-{2 * d.std() / np.sqrt(N) * 100:.2f}); "
+                  f"changes to reach the best: {'; '.join(chg) if chg else 'none'}")
+        if verbose:
+            print("each player's effect: best P(win) among lineups that include him minus best among lineups without him")
+            for s in my_ids:
+                w = max((r[1] for r in res if s in r[0]), default=np.nan)
+                wo = max((r[1] for r in res if s not in r[0]), default=np.nan)
+                print(f"  {mine.name.loc[s]:20s} {mine.position.loc[s]}  with {w * 100:5.1f}% | " + (f"without {wo * 100:5.1f}% | {(w - wo) * 100:+5.1f}" if np.isfinite(wo) else "no alternative at his position"))
+        return res
+
+    Q_ours = P[qc].to_numpy(float)
+    run(Q_ours, "OURS (distribution from our model)", True)
+    if "--espn" in sys.argv:
+        from analysis import espn as ESPN
+        from nflfp import league
+        scoring, _ = league.scoring_from_league(lg["scoring_settings"])
+        K_ESPN = 1.23                               # ESPN's stated sd x 1.23 gives 90% coverage on 2025 weeks 10-18 (analysis/espn_calibration.py)
+        pl = ESPN.player_list()
+        pl["key"] = pl.name.map(sleeper.norm) + "|" + pl.position
+        P["key"] = P.name.map(sleeper.norm) + "|" + P.position
+        uniq = pl.groupby("key").espn_id.nunique()
+        mp = pl[pl.key.isin(uniq[uniq == 1].index)].drop_duplicates("key").set_index("key").espn_id
+        P["espn_id"] = P.key.map(mp)
+        proj = ESPN.to_points(ESPN.projections([int(i) for i in P.espn_id.dropna().unique()], [SEASON * 100 + week]), scoring).drop_duplicates("espn_id").set_index("espn_id")
+        P["espn_mean"], P["espn_sd"] = P.espn_id.map(proj.espn_mean), P.espn_id.map(proj.espn_sd)
+        ok = P.espn_mean.notna() & (P.espn_mean > 0)
+        print(f"\nESPN: projections found for {int(ok.sum())} of {len(P)} players ({', '.join(P.name[~ok])}: not projected, ours used)")
+        # shape from our distribution, standardized, then moved to ESPN's mean and (calibrated) width
+        mean_o = P.mean_.to_numpy(float) if P.mean_.notna().all() else DI.dist_mean(Q_ours)
+        sd_o = P.sd.to_numpy(float) if "sd" in P and P.sd.notna().all() else np.maximum((P.boom.to_numpy(float) - P.bust.to_numpy(float)) / 3.29, 0.5)
+        Z = (Q_ours - mean_o[:, None]) / sd_o[:, None]
+
+        def build(mean, sd):
+            Q = np.sort(np.maximum(mean[:, None] + sd[:, None] * Z, 0.0), axis=1)
+            return Q
+        e_mean = np.where(ok, P.espn_mean, mean_o)
+        e_sd = np.where(ok, P.espn_sd * K_ESPN, sd_o)
+        Q_espn = build(e_mean, e_sd)
+        three = np.where(ok, (P.espn_mean.fillna(0) + P.sl.fillna(P.ensemble) + P.ensemble) / 3, mean_o)
+        Q_cons = build(three, 0.5 * sd_o + 0.5 * e_sd)
+        cmp = P[["name", "position", "proj", "bust", "boom"]].copy()
+        cmp["espn_mean"], cmp["espn_bust"], cmp["espn_boom"] = e_mean, np.maximum(e_mean - 1.645 * e_sd, 0), e_mean + 1.645 * e_sd
+        print("\nours vs ESPN (ESPN range = its mean +/- 1.645 x calibrated sd; ours = 5th-95th percentile):")
+        print(cmp[cmp.index.isin(my_ids)].sort_values("proj", ascending=False).rename(columns={"proj": "ours", "bust": "our_bust", "boom": "our_boom"}).to_string(index=False, float_format="{:.1f}".format))
+        run(Q_espn, "ESPN's mean and range (our distribution shape)", False)
+        run(Q_cons, "CONSENSUS: mean of ESPN, Sleeper and our ensemble; width halfway between ours and ESPN's", False)
