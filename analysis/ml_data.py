@@ -421,6 +421,12 @@ def sleeper_points(season: int, week: int, known: pd.DataFrame, dump: dict, sc: 
         v.to_pickle(cache)
     v = v.copy()
     v["player_id"] = v.sleeper_id.map(sleeper.map_ids(dump, known, v.sleeper_id))
+    # players Sleeper's current list shows on another team (trades, free agency) have no team match: fall back on name + position when that is unambiguous
+    k = known.assign(key=known.player_display_name.map(sleeper.norm))
+    uniq = k.groupby(["key", "position"]).player_id.agg(["first", "size"])
+    uniq = uniq[uniq["size"] == 1]["first"]
+    miss = v.player_id.isna()
+    v.loc[miss, "player_id"] = [uniq.get((sleeper.norm(n), pos)) for n, pos in zip(v.name[miss], v.position[miss])]
     v["sl"] = (sc.yard * (v.sl_rush_yds + v.sl_rec_yds) + sc.ppr * v.sl_receptions + sc.pass_yard * v.sl_pass_yds
                + sc.td * (v.sl_rush_tds + v.sl_rec_tds) + sc.pass_td * v.sl_pass_tds)
     v["season"], v["week"] = season, week
