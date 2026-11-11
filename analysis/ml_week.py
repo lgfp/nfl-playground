@@ -96,6 +96,31 @@ def best_lineup(df: pd.DataFrame, col: str):
     return best
 
 
+def week_rows(week: int, refresh: bool = False, max_age_h: float = 6.0) -> pd.DataFrame:
+    """Pre-game rows for every projected player of the week with the ensemble's and Sleeper's projections (cached for a few hours)."""
+    import time
+    from pathlib import Path
+    cache = Path(f".cache/ml_week_{SEASON}_{week}.pkl")
+    if cache.exists() and not refresh and (time.time() - cache.stat().st_mtime) / 3600 < max_age_h:
+        return pd.read_pickle(cache)
+    dump = sleeper.load_players()
+    vol = A.sleeper_volume(SEASON, week)
+    F, _ = pregame_features(week, vol, dump)
+    hist = pd.read_pickle(MD.OUT)
+    hist = hist[hist.n_hist >= 1].reset_index(drop=True)
+    feats = feature_sets(hist)["avail+qb+cal"]
+    te = F[F.n_hist >= 1].copy()
+    pr = fit_predict(hist[hist.season.between(2021, 2025)], te, feats)
+    for c in pr:
+        te[c] = pr[c]
+    te["blend"] = np.where(te.sl.notna(), 0.5 * te.sl + 0.5 * te.ensemble, np.nan)
+    pw = data.load_player_weeks(SEASON)
+    known = pw[pw.position.isin(MD.POS)].sort_values("week").groupby("player_id")[["player_display_name", "team", "position"]].last().reset_index()
+    te["sleeper_id"] = te.player_id.map(dict(zip(map_to_nflverse(vol, known, dump), vol.sleeper_id)))
+    te.to_pickle(cache)
+    return te
+
+
 if __name__ == "__main__":
     pd.options.display.width = 250
     user = sys.argv[1]
