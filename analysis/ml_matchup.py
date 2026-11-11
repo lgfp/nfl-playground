@@ -33,8 +33,9 @@ def distributions(rows: pd.DataFrame, version: str = DI.VERSION) -> pd.DataFrame
     X, R = DI.prepare(rows)
     tr = X[X.season.between(*DI.TRAIN) & X.sl.notna()]
     Q = DI.fit_version(tr, version)(R)
-    if "rel" not in Q:
-        Q["rel"] = 1.0
+    for c in ("rel", "td_exp", "td_share"):
+        if c not in Q:
+            Q[c] = np.nan
     R = R.join(Q)
     R["bust"], R["boom"] = R[f"q{int(DI.LO * 100):02d}"], R[f"q{int(DI.HI * 100):02d}"]
     return R
@@ -98,15 +99,17 @@ if __name__ == "__main__":
     P["name"] = [nm(s) for s in ids]
     P["side"] = ["me"] * len(my_ids) + ["opp"] * (len(ids) - len(my_ids))
     qc = DI.qcols()
-    show = P[["name", "position", "team", "opp", "side", "sl", "ensemble", "proj", "bust", "boom", "q25", "q50", "q75", "rel"]].copy()
+    show = P[["name", "position", "team", "opp", "side", "sl", "ensemble", "proj", "bust", "boom", "q25", "q50", "q75", "rel", "td_exp", "td_share"]].copy()
     show["start"] = ["S" if s in set(mine_m["starters"]) | set(opp_m["starters"]) else "" for s in ids]
     print(f"{lg['name']}, week {week}. bust / boom = {int(DI.LO * 100)}th / {int(DI.HI * 100)}th percentile (a {round((DI.HI - DI.LO) * 100)}% interval); projected = blend of our ensemble and Sleeper\n")
     for side, lab in (("me", "YOUR ROSTER"), ("opp", "OPPONENT'S STARTERS")):
         d = show[show.side == side].sort_values("proj", ascending=False)
         print(lab)
-        print(d[["name", "position", "team", "opp", "start", "bust", "proj", "boom", "q25", "q50", "q75", "rel", "sl", "ensemble"]].rename(
-            columns={"position": "pos", "start": "S", "proj": "projected", "q25": "25th", "q50": "median", "q75": "75th", "rel": "volatility", "sl": "sleeper",
-                     "ensemble": "ours"}).to_string(index=False, formatters={"volatility": "{:.2f}".format}, float_format="{:.1f}".format))
+        extra = ["td_exp", "td_share"] if d.td_exp.notna().any() else ["rel"]
+        print(d[["name", "position", "team", "opp", "start", "bust", "proj", "boom", "q25", "q50", "q75"] + extra + ["sl", "ensemble"]].rename(
+            columns={"position": "pos", "start": "S", "proj": "projected", "q25": "25th", "q50": "median", "q75": "75th", "rel": "volatility", "td_exp": "exp_TDs",
+                     "sl": "sleeper", "ensemble": "ours"}).to_string(index=False, formatters={"volatility": "{:.2f}".format, "exp_TDs": "{:.2f}".format, "td_share": "{:.2f}".format},
+                                                                    float_format="{:.1f}".format))
         print()
     if no_row:
         print("not available to start (bye, out, or excluded):", "; ".join(no_row))

@@ -23,7 +23,7 @@ from sklearn.preprocessing import StandardScaler
 from analysis import ml_data as MD
 
 warnings.filterwarnings("ignore")
-ID = ["player_id", "player_display_name", "position", "season", "week", "team", "opp", "pts", "pts_notd", "sl", "sl_tds", "sl_carries", "sl_targets", "sl_attempts"]
+ID = ["player_id", "player_display_name", "position", "season", "week", "team", "opp", "pts", "pts_notd", "sl", "sl_tds", "sl_pass_tds", "sl_carries", "sl_targets", "sl_attempts"]
 SL_FEATS = ["sl", "sl_carries", "sl_targets", "sl_attempts"]
 POOL_MIN = 4.0
 

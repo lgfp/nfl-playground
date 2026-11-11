@@ -13,6 +13,11 @@ Versions (compared on 2026 by `python -m analysis.ml_dist`):
            Sleeper and our ensemble disagree, new quarterback, games missed
   scaled   the simple quantiles, stretched or squeezed around the median by the player's relative volatility: predicted |miss| from the volatility inputs divided
            by predicted |miss| from projection and position alone
+  components  built from its parts, so touchdown-heavy projections are wider by construction:
+           points = (yards and receptions) + 6 x rushing/receiving TDs + 4 x passing TDs
+           TD counts are negative-binomial (Poisson when the data shows no extra spread) around Sleeper's projected TDs, recalibrated to actual counts per position;
+           the yards-and-receptions part has its own quantile model around (projection - expected TD points); the two parts move together as they have
+           historically (a good game tends to bring both). 4,000 draws per player give his percentiles.
 """
 from __future__ import annotations
 
@@ -23,8 +28,12 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 
+from scipy.stats import nbinom, norm, poisson
+
 from analysis import ml_data as MD
 from analysis.ml_model import POOL_MIN, feature_sets, fit_predict
+from nflfp import data
+from nflfp import tds as T
 
 warnings.filterwarnings("ignore")
 QS = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99]
@@ -36,7 +45,8 @@ VOL = ["pts_sd8", "pts_max8", "miss_sd8", "td_share_hist", "sl_td_share", "dis",
        "pts_ew", "pts_notd_ew", "xtd_rush_m8", "xtd_rec_m8", "implied", "n_cur", "qb_new", "gap_games"]
 MEDIUM = SIMPLE + ["sl", "ens"] + VOL
 TRAIN = (2021, 2025)
-VERSION = "scaled"            # used by the matchup simulator: as well calibrated on 2026 as "simple", and it carries the (small) player-specific volatility
+VERSION = "components"        # used by the matchup simulator: TD variance is explicit. On 2026 it is calibrated (90% interval covers 89.4%) and fits about 0.6%
+                              # worse than "simple" / "scaled", which remain available (--version)
 
 
 def projections(F: pd.DataFrame, feats: list[str]) -> pd.DataFrame:
@@ -93,7 +103,10 @@ def prepare(rows: pd.DataFrame | None = None):
     if rows is not None:
         base = pd.concat([base, rows[keys + ["pts", "sl"]]], ignore_index=True)
     V = volatility(base)
-    X = add_proj(F.merge(projections(F, feats), on=keys, how="left").merge(V, on=keys, how="left"))
+    pw = pd.concat([data.load_player_weeks(y) for y in sorted(F.season.unique())], ignore_index=True)
+    cnt = pd.DataFrame({"player_id": pw.player_id, "season": pw.season, "week": pw.week, "td_rr": pw.rushing_tds.fillna(0) + pw.receiving_tds.fillna(0),
+                        "td_pass": pw.passing_tds.fillna(0)}).drop_duplicates(keys)
+    X = add_proj(F.merge(projections(F, feats), on=keys, how="left").merge(V, on=keys, how="left").merge(cnt, on=keys, how="left"))
     R = None if rows is None else add_proj(rows.assign(ens=rows.ensemble).merge(V, on=keys, how="left"))
     return X, R
 
@@ -115,6 +128,8 @@ def _quantiles(models: dict, X: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 
 def fit_version(tr: pd.DataFrame, version: str):
     """Returns predict(X) -> quantile table (with `rel`, the player's relative volatility, for the scaled version)."""
+    if version == "components":
+        return fit_components(tr)
     if version in ("simple", "medium"):
         cols = SIMPLE if version == "simple" else MEDIUM
         m = {q: qmodel(q, version == "simple").fit(tr[cols], tr.pts) for q in QS}
@@ -133,6 +148,77 @@ def fit_version(tr: pd.DataFrame, version: str):
         out = pd.DataFrame(V, index=X.index, columns=qcols())
         out["rel"] = rel
         return out
+    return predict
+
+
+def _nb_r(y: np.ndarray, lam: np.ndarray) -> float:
+    """Negative-binomial size from the extra spread of counts around their means (inf = Poisson)."""
+    extra = float(np.sum((y - lam) ** 2 - lam))
+    return float(np.sum(lam ** 2) / extra) if extra > 0 else np.inf
+
+
+def _count_ppf(u: np.ndarray, lam: np.ndarray, r: float) -> np.ndarray:
+    lam = np.maximum(lam, 1e-4)[:, None]
+    if not np.isfinite(r) or r > 200:
+        return poisson.ppf(u, lam)
+    return nbinom.ppf(u, r, r / (r + lam))
+
+
+def fit_components(tr: pd.DataFrame, draws: int = 4000, seed: int = 0):
+    """Distribution from its parts (see the module docstring). Returns predict(X) -> quantile table with td_exp (expected TDs), td_share and sd."""
+    par = {}
+    for pos in MD.POS:
+        d = tr[(tr.position == pos) & tr.td_rr.notna()]
+        fit = lambda x, y: T.poisson_fit(np.log(np.maximum(x, 0.02))[:, None], y, ridge=0.01)
+        b_rr = fit(d.sl_tds.to_numpy(float), d.td_rr.to_numpy(float))
+        lam_rr = T.poisson_predict(b_rr, np.log(np.maximum(d.sl_tds.to_numpy(float), 0.02))[:, None])
+        p = dict(b_rr=b_rr, r_rr=_nb_r(d.td_rr.to_numpy(float), lam_rr))
+        lam_p = np.zeros(len(d))
+        if pos == "QB":
+            x = d.sl_pass_tds.fillna(0).to_numpy(float)
+            p["b_p"] = fit(x, d.td_pass.to_numpy(float))
+            lam_p = T.poisson_predict(p["b_p"], np.log(np.maximum(x, 0.02))[:, None])
+            p["r_p"] = _nb_r(d.td_pass.to_numpy(float), lam_p)
+        mu_n = np.maximum(d.proj.to_numpy(float) - 6 * lam_rr - 4 * lam_p, 0.2)
+        dd = pd.DataFrame({"mu_n": mu_n})
+        p["qn"] = {q: HistGradientBoostingRegressor(loss="quantile", quantile=q, learning_rate=0.05, max_iter=300, max_leaf_nodes=6, min_samples_leaf=150,
+                                                    early_stopping=True, validation_fraction=0.15, n_iter_no_change=30, random_state=0).fit(dd, d.pts_notd) for q in QS}
+        td_pts = 6 * d.td_rr.to_numpy(float) + 4 * d.td_pass.to_numpy(float)
+        p["rho"] = float(np.corrcoef(d.pts_notd.to_numpy(float) - mu_n, td_pts - (6 * lam_rr + 4 * lam_p))[0, 1])
+        par[pos] = p
+
+    def predict(X: pd.DataFrame) -> pd.DataFrame:
+        rng = np.random.default_rng(seed)
+        out = []
+        for pos in MD.POS:
+            d = X[X.position == pos]
+            if d.empty:
+                continue
+            p = par[pos]
+            lg = lambda v: np.log(np.maximum(np.nan_to_num(v.to_numpy(float)), 0.02))[:, None]
+            lam_rr = T.poisson_predict(p["b_rr"], lg(d.sl_tds))
+            lam_p = T.poisson_predict(p["b_p"], lg(d.sl_pass_tds)) if pos == "QB" else np.zeros(len(d))
+            no_sl = d.sl.isna().to_numpy()                              # no public projection: assume the position's usual TD share of the projection
+            if no_sl.any():
+                share = float(np.mean(6 * lam_rr[~no_sl] + 4 * lam_p[~no_sl]) / max(np.mean(d.proj.to_numpy(float)[~no_sl]), 1e-6)) if (~no_sl).any() else 0.25
+                lam_rr[no_sl], lam_p[no_sl] = share * d.proj.to_numpy(float)[no_sl] / 6 * (0.0 if pos == "QB" else 1.0), (share * d.proj.to_numpy(float)[no_sl] / 4 if pos == "QB" else 0.0)
+            mu_n = np.maximum(d.proj.to_numpy(float) - 6 * lam_rr - 4 * lam_p, 0.2)
+            Qn = np.sort(np.maximum(np.column_stack([p["qn"][q].predict(pd.DataFrame({"mu_n": mu_n})) for q in QS]), 0.0), axis=1)
+            z = rng.standard_normal((len(d), draws, 3))
+            z2 = p["rho"] * z[:, :, 0] + np.sqrt(1 - p["rho"] ** 2) * z[:, :, 1]
+            pk, V = knots(Qn)
+            n_part = np.vstack([np.interp(norm.cdf(z[j, :, 0]), pk, V[j]) for j in range(len(d))])
+            u2 = norm.cdf(z2)
+            if pos == "QB":
+                tdp = 4 * _count_ppf(u2, lam_p, p["r_p"]) + 6 * _count_ppf(norm.cdf(z[:, :, 2]), lam_rr, p["r_rr"])
+            else:
+                tdp = 6 * _count_ppf(u2, lam_rr, p["r_rr"])
+            tot = n_part + tdp
+            q = pd.DataFrame(np.quantile(tot, QS, axis=1).T, index=d.index, columns=qcols())
+            q["td_exp"], q["td_share"], q["sd"], q["mean_"] = lam_rr + lam_p, (6 * lam_rr + 4 * lam_p) / np.maximum(d.proj.to_numpy(float), 0.1), tot.std(axis=1), tot.mean(axis=1)
+            out.append(q)
+        return pd.concat(out).reindex(X.index)                          # rows whose position is not QB/RB/WR/TE get no distribution
+    predict.par = par
     return predict
 
 
@@ -166,7 +252,12 @@ if __name__ == "__main__":
     te = X[(X.season == 2026) & (X.sl >= POOL_MIN)].copy()
     y = te.pts.to_numpy(float)
     print(f"trained on {len(tr)} player-games of {TRAIN[0]}-{TRAIN[1]} (each projected by a model that never saw its season); checked on {len(te)} of 2026")
-    res = {v: fit_version(tr, v)(te) for v in ("simple", "medium", "scaled")}
+    fits = {v: fit_version(tr, v) for v in ("simple", "scaled", "components")}
+    res = {v: f(te) for v, f in fits.items()}
+    par = fits["components"].par
+    print("components model, per position: TD-count spread (negative-binomial size; inf = Poisson) and how the two parts move together")
+    for pos, p in par.items():
+        print(f"  {pos}: rush/rec TDs size {p['r_rr']:.1f}" + (f", passing TDs size {p['r_p']:.1f}" if "r_p" in p else "") + f" | correlation of the TD part with the yards-and-receptions part {p['rho']:+.2f}")
     print("\ncalibration on 2026: share of actual scores below each predicted percentile (should equal the percentile) | pinball loss (lower is better)")
     rows = []
     for q, c in zip(QS, qcols()):
@@ -181,42 +272,36 @@ if __name__ == "__main__":
     print("total pinball loss:", " | ".join(f"{v} {T_[f'{v}_loss'].sum():.3f}" for v in res))
     rng = np.random.default_rng(0)
     codes = pd.factorize(te.week.astype(str) + te.team)[0]
-    for v in ("medium", "scaled"):
+    for v in ("scaled", "components"):
         d = sum(np.maximum(q * (y - res[v][c]), (q - 1) * (y - res[v][c])) - np.maximum(q * (y - res["simple"][c]), (q - 1) * (y - res["simple"][c])) for q, c in zip(QS, qcols())).to_numpy()
         per = np.bincount(codes, d, codes.max() + 1)
         b = per[rng.integers(0, len(per), size=(2000, len(per)))].sum(1) / len(y)
         print(f"  {v} minus simple, total pinball loss: {d.mean():+.4f} [{np.percentile(b, 2.5):+.4f}, {np.percentile(b, 97.5):+.4f}] (negative = better)")
     for v in res:
         Q = res[v]
+        m = Q.mean_.mean() if "mean_" in Q else dist_mean(Q[qcols()].to_numpy()).mean()
         print(f"{v}: 90% interval covers {((y >= Q.q05) & (y <= Q.q95)).mean():.3f} (80%: {((y >= Q.q10) & (y <= Q.q90)).mean():.3f}); average width {np.mean(Q.q95 - Q.q05):.1f}; "
-              f"mean of the distribution {dist_mean(Q[qcols()].to_numpy()).mean():.2f} vs projection {te.proj.mean():.2f} vs actual {y.mean():.2f}")
-
-    # the direct question: among players with the same position and projection, does predicted volatility separate who booms and busts?
-    te["rel"] = res["scaled"].rel.to_numpy()
+              f"mean of the distribution {m:.2f} vs projection {te.proj.mean():.2f} vs actual {y.mean():.2f}")
+    C, S = res["components"], res["simple"]
+    te["td_share"], te["w_c"], te["w_s"] = C.td_share.to_numpy(), (C.q95 - C.q05).to_numpy(), (S.q95 - S.q05).to_numpy()
+    te["rel_c"] = te.w_c / te.w_s
     te["miss"] = te.pts - te.proj
-    S = res["simple"]
+    te["z"] = te.miss / (te.w_s / 3.29)
     te["boom"], te["bust"] = (y > S.q90).astype(float), (y < S.q10).astype(float)
-    te["z"] = te.miss / ((S.q90 - S.q10) / 2.56).to_numpy()                      # miss in units of the simple model's spread for that projection and position
-    print(f"\nrelative volatility (1.0 = typical for his position and projection): 10th-90th percentile of players {te.rel.quantile(.1):.2f}-{te.rel.quantile(.9):.2f}; "
-          f"corr with the size of the standardized miss {np.corrcoef(te.rel, te.z.abs())[0, 1]:+.3f} (noise band +/-{2 / np.sqrt(len(te)):.3f})")
-    q = pd.qcut(te.rel, 3, labels=["steady third", "middle", "volatile third"])
-    g = te.groupby(q, observed=True).agg(n=("pts", "size"), rel=("rel", "mean"), proj=("proj", "mean"), spread_of_misses=("z", "std"), boom_rate=("boom", "mean"), bust_rate=("bust", "mean"))
-    print("  boom = above the simple model's 90th percentile, bust = below its 10th (both 10% if volatility carried no information)")
-    print(g.round(3).to_string())
+    print(f"\ncomponents: width of a player's 90% range relative to the simple model (same position and projection): 10th-90th percentile {te.rel_c.quantile(.1):.2f}-{te.rel_c.quantile(.9):.2f}; "
+          f"corr with the size of the standardized miss {np.corrcoef(te.rel_c, te.z.abs())[0, 1]:+.3f} (noise band +/-{2 / np.sqrt(len(te)):.3f})")
     for pos in MD.POS:
         d = te[te.position == pos]
-        qq = pd.qcut(d.rel, 3, labels=["steady", "middle", "volatile"])
-        gg = d.groupby(qq, observed=True).agg(sd=("z", "std"), boom=("boom", "mean"), bust=("bust", "mean"))
-        print(f"  {pos} (n={len(d)}): spread of misses steady {gg.sd.iloc[0]:.2f} / volatile {gg.sd.iloc[2]:.2f} | boom rate {gg.boom.iloc[0]:.3f} / {gg.boom.iloc[2]:.3f} | bust rate {gg.bust.iloc[0]:.3f} / {gg.bust.iloc[2]:.3f}")
-    # what drives it
-    ym = (tr.pts - tr.proj).abs()
-    from sklearn.inspection import permutation_importance
-    b = HistGradientBoostingRegressor(learning_rate=0.05, max_iter=400, max_leaf_nodes=8, min_samples_leaf=150, random_state=0).fit(tr[MEDIUM], ym)
-    imp = pd.Series(permutation_importance(b, te[MEDIUM], te.miss.abs(), n_repeats=5, random_state=0, scoring="neg_mean_absolute_error").importances_mean, index=MEDIUM)
-    print("\ninputs that most change the predicted size of a miss (2026):", imp.sort_values(ascending=False).head(8).round(3).to_dict())
-    out = te[["player_id", "player_display_name", "position", "week", "team", "proj", "pts", "rel"]].join(res["scaled"][qcols()])
+        qq = pd.qcut(d.td_share, 3, labels=["low TD share", "middle", "high TD share"])
+        g = d.groupby(qq, observed=True).agg(n=("pts", "size"), td_share=("td_share", "mean"), proj=("proj", "mean"), predicted_width=("w_c", "mean"), simple_width=("w_s", "mean"),
+                                             actual_spread=("z", "std"), boom=("boom", "mean"), bust=("bust", "mean"))
+        print(f"  {pos} by the TD share of the projection:")
+        print("   " + g.round(3).to_string().replace("\n", "\n   "))
+    out = te[["player_id", "player_display_name", "position", "week", "team", "proj", "pts", "td_share"]].join(C[qcols() + ["td_exp"]])
     out.to_pickle("/tmp/ml_dist_2026.pkl")
     wk = out[out.week == out.week.max()]
-    ex = pd.concat([wk[wk.position == p].assign(d=lambda t: (t.proj - 12).abs()).sort_values("d").head(6) for p in ("RB", "WR")])
-    print(f"\nexample, week {int(out.week.max())}: RBs and WRs projected near 12, scaled version (bust / projected / boom, relative volatility, actual)")
-    print(ex[["player_display_name", "position", "q05", "proj", "q95", "rel", "pts"]].rename(columns={"q05": "bust", "q95": "boom", "pts": "actual"}).to_string(index=False, float_format="{:.1f}".format))
+    ex = wk[(wk.position == "RB") & wk.proj.between(10, 14)].sort_values("td_share")
+    ex = pd.concat([ex.head(4), ex.tail(4)])
+    print(f"\nexample, week {int(out.week.max())}: RBs projected 10-14, the four least and four most TD-dependent (components version)")
+    print(ex[["player_display_name", "q05", "proj", "q95", "td_exp", "td_share", "pts"]].rename(columns={"q05": "bust", "q95": "boom", "td_exp": "exp TDs", "pts": "actual"}).to_string(
+        index=False, formatters={"exp TDs": "{:.2f}".format, "td_share": "{:.2f}".format}, float_format="{:.1f}".format))
