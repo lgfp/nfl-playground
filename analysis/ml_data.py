@@ -119,7 +119,7 @@ def raw_table(sc: Scoring = Scoring()) -> pd.DataFrame:
     for s in SEASONS:
         ttl = None if s < data.current_season() else data.CACHE_TTL_HOURS
         x = pd.read_csv(data._fetch(SNAP_URL.format(season=s), f"snaps_{s}.csv", False, ttl))
-        snaps.append(x[(x.game_type == "REG") & x.position.isin(POS)])
+        snaps.append(x[(x.game_type == "REG") & x.position.isin(POS + ("HB", "FB"))])      # the snap file labels some backs HB / FB
     sn = pd.concat(snaps)
     sn["key"] = sn.player.map(sleeper.norm)
     sn = sn.groupby(["season", "week", "team", "key"], as_index=False).offense_pct.max().rename(columns={"offense_pct": "snap_pct"})
