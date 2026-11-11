@@ -430,7 +430,8 @@ def sleeper_points(season: int, week: int, known: pd.DataFrame, dump: dict, sc: 
     v["sl"] = (sc.yard * (v.sl_rush_yds + v.sl_rec_yds) + sc.ppr * v.sl_receptions + sc.pass_yard * v.sl_pass_yds
                + sc.td * (v.sl_rush_tds + v.sl_rec_tds) + sc.pass_td * v.sl_pass_tds)
     v["season"], v["week"] = season, week
-    return v[v.player_id.notna()][["player_id", "season", "week", "sl", "carries", "targets", "attempts"]].rename(
+    v["sl_tds"] = v.sl_rush_tds + v.sl_rec_tds                         # Sleeper's projected rushing + receiving TDs (for analysis, not a model input)
+    return v[v.player_id.notna()][["player_id", "season", "week", "sl", "sl_tds", "carries", "targets", "attempts"]].rename(
         columns={"carries": "sl_carries", "targets": "sl_targets", "attempts": "sl_attempts"}).drop_duplicates(["player_id"])
 
 
