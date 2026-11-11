@@ -150,3 +150,51 @@ receiving target share about 5%; a player's own TD history, red-zone share and f
 (correlation 0.37 rushing, 0.23 receiving), but season totals track well (0.92 / 0.82). Players with no games for their current team (rookies, trades) get no TDs.
 
 `uv run python -m analysis.week_players 2026 9 25 <sleeper user>` runs modules 1-4 and prints expected points (yards + receptions + TDs) next to Sleeper's.
+
+## Black-box player model (`analysis/ml_*.py`)
+
+A second, independent approach: instead of hand-built steps, learn next-game fantasy points per player directly from raw inputs. It is research code under
+`analysis/`; the CLI and the league tool still run the older pipeline.
+
+**How it works**
+- One row per player-game (QB/RB/WR/TE who played), `analysis/ml_data.py`. Every input comes from games before that one, from the current season and the one
+  before it. Players with no NFL game in that window (mostly rookies before their second game) get no estimate.
+- Inputs (154 in the working set): the player's recent points, carries, targets, yards, TDs, shares of team volume and snap share over his last 1 / 3 / 8 games,
+  recency-weighted, this season and last season; expected TDs and goal-line / red-zone chances from play-by-play; Vegas implied total, spread and game total; the
+  team's recent volume; what the opponent allows to the position; availability known at kickoff (teammates' vacated carries and targets, QB change, games he
+  missed); the quarterback's recent form and the player's history with him; calendar time (days since his last game, day-weighted averages).
+- Models (`analysis/ml_model.py`): ridge regression per position, gradient-boosted trees (squared and Poisson loss), a small neural net, and their average
+  ("ensemble"). Trained on 2021-25, tested on 2026 weeks 1-9, a season the models never saw.
+- The benchmark is Sleeper's pre-game projection (its feed for past weeks is the pre-game number: week-9 values fetched before the games match the feed afterwards).
+- The working projection is a 50-50 blend of the ensemble and Sleeper.
+
+**Results** (2026 weeks 1-9, 1,673 player-games Sleeper projected at 4+ points; "pairs" = pairs of players at a position in a week put in the right order)
+
+| | MAE | corr | pairs |
+|---|---|---|---|
+| Sleeper | 5.03 | 0.603 | 67.4% |
+| Ensemble, 154 inputs | 4.98 | 0.598 | 66.5% |
+| 50-50 blend | 4.96 | 0.611 | 67.7% |
+
+The blend is 0.08 MAE better than Sleeper (95% interval -0.12 to -0.03). The ensemble alone is within noise of Sleeper on MAE and slightly worse at ordering
+players, mostly running backs. The hand-built modules 1-4 are in the same range (weeks 4-8: MAE 4.97 vs Sleeper 4.99), using Sleeper's volume as an input.
+
+**What moved accuracy, and what did not** (each tested on held-out games; scripts in brackets)
+- Helped: training on five seasons instead of one (-0.05 MAE, `ml_multiseason`); blending with Sleeper; quarterback inputs, for QBs only (`ml_qb_ranking`).
+- No measurable gain: team run/pass trends, EPA, opposing defense, game environment; situational detail (field position, target depth, down and distance, run
+  direction - slightly worse); offensive-line stability (`ml_oline`); adjusted line yards (`ml_addgroup`); calendar time (a gain that disappeared once two data
+  bugs were fixed); one model per position (`ml_split`); how a team scores near the goal line and the player's share of it (`ml_scoring_context`); a player's
+  history of missing projections; a week-based switch from public to our projections (a flat 50-50 did better).
+- Touchdown chances (`ml_td_opps`, `ml_vulture`, `ml_td_adjust`): a back's goal-line chances barely carry forward (correlation 0.16-0.19 with the next game), and
+  lead backs who lose goal-line work are not over-projected on average. A TD adjustment (projected TDs vs chances-based TDs) improves Sleeper's RB projections by
+  0.04 MAE but adds nothing inside the blend.
+- The models lean almost entirely on a player's recent non-TD points, snap share and the Vegas implied total.
+
+**Other tools**: `ml_ranking` (ordering metrics), `ml_diagnose` (why a player was projected where he was), `winprob` (lineup choice by simulated win probability),
+`backtest_players` / `compare_roster*` (roster-level comparisons with Sleeper).
+
+    uv run python -m analysis.ml_data         # build the feature table (.cache/ml_features.pkl)
+    uv run python -m analysis.ml_addgroup avail+qb avail+qb+cal     # train on 2021-25, score 2026 against Sleeper
+
+**Caveats**: one test season (nine weeks), and about a dozen variants were tried against it, so the best numbers are slightly flattered; availability and
+quarterback inputs use who actually played (known at kickoff, not midweek); points ignore interceptions and fumbles.
