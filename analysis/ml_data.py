@@ -35,7 +35,7 @@ AVAIL = ["vac_carry", "vac_target", "qb_new", "gap_games"]
 PBP_COLS = ["season", "week", "season_type", "posteam", "defteam", "play_type", "two_point_attempt", "qb_kneel", "qb_spike", "yardline_100", "rush_touchdown",
             "pass_touchdown", "rusher_player_id", "rusher_player_name", "receiver_player_id", "receiver_player_name", "passer_player_id", "epa", "success", "pass", "rush",
             "pass_oe", "qb_dropback", "qb_scramble", "sack", "air_yards", "yards_after_catch", "yards_gained", "down", "score_differential", "qtr", "fixed_drive",
-            "game_id", "goal_to_go", "cpoe", "interception", "ydstogo", "run_location", "run_gap", "pass_location", "half_seconds_remaining", "shotgun"]
+            "game_id", "goal_to_go", "cpoe", "interception", "ydstogo", "run_location", "run_gap", "pass_location", "half_seconds_remaining", "shotgun", "first_down"]
 # finer situational detail per player-game (group "gr"): where on the field, how deep, which down, which direction
 GR = ["car_short", "car_34", "car_early", "car_out", "car_mid", "car_left", "car_own", "car_yl", "car_shotgun",
       "tgt_behind", "tgt_short", "tgt_int", "tgt_mid", "tgt_early", "tgt_2min", "tgt_own", "tgt_yl"]
@@ -267,6 +267,52 @@ def _quarterback(d: pd.DataFrame, s: int) -> pd.DataFrame:
     return x[x.season == s][["player_id", "season", "week", "qb_id", "qbs_together", "qbs_tshare_with", "qbs_pts_with", "qbs_same_last"]]
 
 
+def _line_yards(d: pd.DataFrame, s: int) -> pd.DataFrame:
+    """Adjusted line yards (Football Outsiders' weights, without their down/distance/situation normalisation) and the companion line stats, on running-back
+    carries of seasons s-1 and s, for the player's offense ("aly_off_") and the opposing defense ("aly_dfn_"), from earlier games only.
+
+    line yards of a carry: a loss counts 120%, 0-4 yards 100%, yards 5-10 at 50%, yards 11+ at 0%.
+    aly_m4 / aly_m8: per carry over the last 4 / 8 games; aly_adj_m8: the same after subtracting what each opponent had been allowing (resp. gaining) before that
+    game; stuff: share of carries for no gain or a loss; lvl2 / open: yards 5-10 / 11+ past the line per carry; power: conversion rate on 3rd/4th or goal-to-go and <= 2."""
+    p = pbp()
+    pos = d.groupby("player_id").position.last()
+    x = p[p.season.isin([s - 1, s]) & (p.play_type == "run") & p.rusher_player_id.notna()]
+    x = x[x.rusher_player_id.map(pos) == "RB"].copy()
+    y = x.yards_gained.fillna(0.0)
+    x["ly"] = np.where(y < 0, 1.2 * y, np.where(y <= 4, y, np.where(y <= 10, 4 + 0.5 * (y - 4), 7.0)))
+    x["stuff"] = (y <= 0).astype(float)
+    x["lvl2"], x["open"] = (y - 4).clip(0, 6), (y - 10).clip(lower=0)
+    pw_ = (x.ydstogo <= 2) & ((x.down >= 3) | (x.goal_to_go == 1))
+    x["pw_n"], x["pw_s"] = pw_.astype(float), (pw_ & ((x.first_down == 1) | (x.td == 1))).astype(float)
+    tabs = {}
+    for side, key, other in (("off", "posteam", "defteam"), ("dfn", "defteam", "posteam")):
+        t = x.groupby(["season", "week", key, other]).agg(ly=("ly", "mean"), stuff=("stuff", "mean"), lvl2=("lvl2", "mean"), open=("open", "mean"),
+                                                         pw_n=("pw_n", "sum"), pw_s=("pw_s", "sum")).reset_index().rename(columns={key: "team", other: "vs"})
+        tabs[side] = t.sort_values(["team", "season", "week"])
+    for side, o in (("off", "dfn"), ("dfn", "off")):                   # what the opponent had done before that game (its own prior average)
+        t, u = tabs[side], tabs[o]
+        u = u.assign(prior=u.groupby("team").ly.transform(lambda v: v.shift(1).expanding().mean()))
+        t = t.merge(u[["season", "week", "team", "prior"]].rename(columns={"team": "vs"}), on=["season", "week", "vs"], how="left")
+        lg = t.ly.mean()
+        t["ly_adj"] = t.ly - (t.prior.fillna(lg) - lg)
+        tabs[side] = t.sort_values(["team", "season", "week"])
+    out = {}
+    for side, t in tabs.items():
+        g = lambda c: t.groupby("team")[c].shift(1).groupby(t.team)
+        f = t[["season", "week", "team"]].copy()
+        f[f"aly_{side}_m4"] = g("ly").rolling(4, min_periods=1).mean().reset_index(level=0, drop=True)
+        f[f"aly_{side}_m8"] = g("ly").rolling(8, min_periods=1).mean().reset_index(level=0, drop=True)
+        f[f"aly_{side}_adj_m8"] = g("ly_adj").rolling(8, min_periods=1).mean().reset_index(level=0, drop=True)
+        for c in ("stuff", "lvl2", "open"):
+            f[f"aly_{side}_{c}_m8"] = g(c).rolling(8, min_periods=1).mean().reset_index(level=0, drop=True)
+        n8 = g("pw_n").rolling(8, min_periods=1).sum().reset_index(level=0, drop=True)
+        f[f"aly_{side}_power_m8"] = g("pw_s").rolling(8, min_periods=1).sum().reset_index(level=0, drop=True) / n8.where(n8 > 0)
+        out[side] = f[f.season == s]
+    rows = d[d.season == s][["player_id", "season", "week", "team", "opp"]]
+    rows = rows.merge(out["off"], on=["season", "week", "team"], how="left")
+    return rows.merge(out["dfn"].rename(columns={"team": "opp"}), on=["season", "week", "opp"], how="left").drop(columns=["team", "opp"])
+
+
 OL_POS = ("T", "G", "C", "OL")
 
 
@@ -369,6 +415,7 @@ def build() -> pd.DataFrame:
         f = f.merge(_team_trends(d, s, sched), on=["player_id", "season", "week"], how="left")
         f = f.merge(_def_granular(d, s), on=["player_id", "season", "week"], how="left")
         f = f.merge(_oline(s), on=["season", "week", "team"], how="left")
+        f = f.merge(_line_yards(d, s), on=["player_id", "season", "week"], how="left")
         f = f.merge(_quarterback(d, s), on=["player_id", "season", "week"], how="left")
         form = f[f.player_id == f.qb_id][["season", "week", "team"] + QB_FORM].rename(columns={c: f"qbs_{c}" for c in QB_FORM}).drop_duplicates(["season", "week", "team"])
         f = f.merge(form, on=["season", "week", "team"], how="left").drop(columns="qb_id")      # the QB's own recent form, given to every teammate
@@ -385,7 +432,8 @@ def build() -> pd.DataFrame:
     return pd.concat([F, pd.DataFrame({f"is_{p}": (F.position == p).astype(float) for p in POS})], axis=1)
 
 
-GROUPS = {"ol": "offensive-line stability (same five starters as last game, games together, experience, recent continuity)",
+GROUPS = {"aly": "adjusted line yards and companion run-blocking stats, for the offense and the opposing run defense",
+          "ol": "offensive-line stability (same five starters as last game, games together, experience, recent continuity)",
           "qbs": "the quarterback: his recent form and efficiency, experience, and the player's history with him",
           "px": "player efficiency and play-by-play detail (EPA, depth, inside-10, shares, trends)", "off": "team offense trends (run/pass mix, EPA, red-zone trips, points)",
           "gr": "situational detail (field position, target depth, down and distance, run direction) for the player and what the defense allows by depth / direction",
