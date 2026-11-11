@@ -198,3 +198,38 @@ players, mostly running backs. The hand-built modules 1-4 are in the same range 
 
 **Caveats**: one test season (nine weeks), and about a dozen variants were tried against it, so the best numbers are slightly flattered; availability and
 quarterback inputs use who actually played (known at kickoff, not midweek); points ignore interceptions and fumbles.
+
+## Distributions, matchup simulation and ESPN (`analysis/ml_dist.py`, `ml_matchup.py`, `espn.py`)
+
+Instead of one number per player, the model gives a distribution: **bust** (5th percentile), **projected** (the blend of our ensemble and Sleeper) and **boom** (95th
+percentile), and a Monte Carlo of the next head-to-head matchup uses them to rank every legal lineup by its chance of winning.
+
+**Distributions** (`ml_dist.py`). Quantile models learn how wide and how skewed outcomes are around a projection. Each of 2021-25 is projected by an ensemble trained on the
+other four seasons, so the ranges are not too narrow; 2026 is projected by the ensemble trained on 2021-25. Four versions are compared on 2026:
+- `simple`: depends on the projection and position only. `scaled`: the same, stretched by a player-specific volatility estimate. `medium`: quantiles that also see 20 volatility inputs
+  (worse calibrated).
+- `components` (the default): built from its parts, points = yards and receptions + 6 x rushing/receiving TDs (+ 4 x passing TDs), with the TD counts drawn around Sleeper's projected
+  TDs (Poisson or negative binomial, whichever the data supports) and moving together with the yards part (correlation about +0.37). Touchdowns are 27% (WR) to 48% (QB) of the
+  variance of a miss, so a TD-dependent projection gets a wider range.
+- On 2026 the 90% interval contains the actual score 89-90% of the time for `simple`, `scaled` and `components`. `components` fits about 0.6% worse on pinball loss than `simple`.
+- **A player's own volatility does not persist.** His spread over his last 8 games has a correlation of +0.007 with the size of his next miss (14,558 player-games), and his spread in weeks 1-9 vs
+  10-18 of a season correlates +0.003. Range width is set almost entirely by position and projection level; player-specific stretch is small (typically -6% to +6%).
+
+**Matchup simulation** (`ml_matchup.py`, `uv run python -m analysis.ml_matchup <username> [week] [--espn] [--version simple|scaled|medium|components]`). Draws 100,000 games from the
+players' distributions. Players on the same NFL team, or on opposite sides of one game, move together as their score surprises have since 2021 (QB-WR same team +0.38, QB-TE +0.32,
+QB-WR across the game +0.11, others near zero; Gaussian copula), everyone else independently. All legal lineups are scored against the same simulated opponent totals; the output lists
+the most likely to win with differences against the best (with Monte Carlo error), the rank of your current lineup, the changes needed to reach the best one and each player's effect.
+Kickers and defenses are not modelled (the same generic draw for both sides, or the real score if already played). Taxi and reserve players are excluded.
+`ml_week.py` builds the pre-game inputs for an unplayed week (one row per player Sleeper projects who is not Out/IR; likely QB from Sleeper's projected attempts) and runs every tested
+model on a roster. `ml_hedge.py` quantifies a hedge against an opponent's stack of one team.
+
+**Public projections and ranges**
+- Sleeper's projection feed (labelled RotoWire) has no ranges; its `company` parameter returns only ADP for any other name.
+- ESPN's fantasy API (`lm-api-reads.fantasy.espn.com`, `espn.py`) publishes a mean and a variance for every projected stat, by week, for the current and future weeks (2025 weeks 10-18
+  were available for history). Points follow under any scoring; the variance of the total assumes independent stats. ESPN's means are as accurate as Sleeper's (MAE 5.06 vs 5.04 on
+  those 1,740 player-games). Its ranges are 23% too narrow (90% interval covers 82.5%; a multiple of 1.23 gives 90%), come 95-98% from touchdowns, and the published spread carries no
+  information about who misses by more (correlation +0.001). `--espn` adds two scenarios to the simulator: ESPN's mean and calibrated width (our distribution shape), and a consensus
+  (mean of ESPN, Sleeper and our ensemble, width halfway between ours and ESPN's). Calibration: `uv run python -m analysis.espn_calibration`.
+
+**Hand-built vs black box, and the research record.** The hand-built modules 1-4 and the black-box model are both documented above; `analysis/` also holds the tests behind each
+negative result (`ml_scoring_context`, `ml_td_opps`, `ml_vulture`, `ml_td_adjust`, `ml_diagnose`, ...).
