@@ -125,7 +125,40 @@ def raw_table(sc: Scoring = Scoring()) -> pd.DataFrame:
     sn = sn.groupby(["season", "week", "team", "key"], as_index=False).offense_pct.max().rename(columns={"offense_pct": "snap_pct"})
     d["key"] = d.player_display_name.map(sleeper.norm)
     d = d.merge(sn, on=["season", "week", "team", "key"], how="left").drop(columns="key")
-    return d.sort_values(["player_id", "season", "week"]).reset_index(drop=True)
+    g = pd.read_csv(".cache/games.csv", low_memory=False)
+    g = g[g.season.isin(SEASONS) & (g.game_type == "REG")]
+    dates = pd.concat([g.assign(team=g.home_team), g.assign(team=g.away_team)])[["season", "week", "team", "gameday"]]
+    d = d.merge(dates, on=["season", "week", "team"], how="left")
+    d["day"] = (pd.to_datetime(d.gameday) - pd.Timestamp("2020-01-01")).dt.days.astype(float)
+    return d.drop(columns="gameday").sort_values(["player_id", "season", "week"]).reset_index(drop=True)
+
+
+TM_STATS = ("pts", "pts_notd", "carries", "targets", "snap_pct")
+TM_HALF = (30, 120)            # half-lives in calendar days
+
+
+def _time_features(x: pd.DataFrame) -> pd.DataFrame:
+    """Calendar-time inputs (group "tm") for every row of x (one player's games sorted by date are weighted by how long ago they were, not by game count):
+    tm_days_last: days since his previous game; tm_age8: average age in days of his last 8 games; tm_cur8: share of those 8 played this season;
+    tm_<stat>_h30 / _h120: averages of earlier games weighted 0.5 ** (days ago / 30 or 120)."""
+    cols = ["tm_days_last", "tm_age8", "tm_cur8"] + [f"tm_{c}_h{h}" for c in TM_STATS for h in TM_HALF]
+    out = np.full((len(x), len(cols)), np.nan)
+    pos = {i: k for k, i in enumerate(x.index)}
+    for _, g in x.groupby("player_id", sort=False):
+        day, season = g.day.to_numpy(float), g.season.to_numpy()
+        vals = {c: g[c].to_numpy(float) for c in TM_STATS}
+        rows = [pos[i] for i in g.index]
+        for i in range(1, len(g)):
+            ago = day[i] - day[:i]
+            r = [ago[-1], ago[-8:].mean(), float((season[max(0, i - 8):i] == season[i]).mean())]
+            for c in TM_STATS:
+                v = vals[c][:i]
+                ok = np.isfinite(v)
+                for h in TM_HALF:
+                    w = np.power(0.5, ago / h) * ok
+                    r.append(float((w * np.where(ok, v, 0.0)).sum() / w.sum()) if w.sum() > 0 else np.nan)
+            out[rows[i]] = r
+    return pd.DataFrame(out, index=x.index, columns=cols)
 
 
 def _player_features(d: pd.DataFrame, s: int) -> pd.DataFrame:
@@ -165,6 +198,7 @@ def _player_features(d: pd.DataFrame, s: int) -> pd.DataFrame:
     out["px_pts_trend"] = out.pts_m3 - out.pts_m8
     out["px_snap_trend"] = out.snap_pct_m3 - out.snap_pct_m8
     out["px_opp_trend"] = (out.carries_m3 + out.targets_m3) - opp
+    out = pd.concat([out, _time_features(x)], axis=1)
     cur = x[x.season == s]
     gc = cur.groupby("player_id", sort=False)
     for c in ("pts", "carries", "targets", "snap_pct", "carry_share", "target_share"):
@@ -432,7 +466,8 @@ def build() -> pd.DataFrame:
     return pd.concat([F, pd.DataFrame({f"is_{p}": (F.position == p).astype(float) for p in POS})], axis=1)
 
 
-GROUPS = {"aly": "adjusted line yards and companion run-blocking stats, for the offense and the opposing run defense",
+GROUPS = {"tm": "calendar time: days since the last game, age of the recent games, share of them from this season, day-weighted averages",
+          "aly": "adjusted line yards and companion run-blocking stats, for the offense and the opposing run defense",
           "ol": "offensive-line stability (same five starters as last game, games together, experience, recent continuity)",
           "qbs": "the quarterback: his recent form and efficiency, experience, and the player's history with him",
           "px": "player efficiency and play-by-play detail (EPA, depth, inside-10, shares, trends)", "off": "team offense trends (run/pass mix, EPA, red-zone trips, points)",
