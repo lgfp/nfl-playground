@@ -138,10 +138,10 @@ TM_HALF = (30, 120)            # half-lives in calendar days
 
 
 def _time_features(x: pd.DataFrame) -> pd.DataFrame:
-    """Calendar-time inputs (group "tm") for every row of x (one player's games sorted by date are weighted by how long ago they were, not by game count):
-    tm_days_last: days since his previous game; tm_age8: average age in days of his last 8 games; tm_cur8: share of those 8 played this season;
-    tm_<stat>_h30 / _h120: averages of earlier games weighted 0.5 ** (days ago / 30 or 120)."""
-    cols = ["tm_days_last", "tm_age8", "tm_cur8"] + [f"tm_{c}_h{h}" for c in TM_STATS for h in TM_HALF]
+    """Calendar-time inputs (group "cal") for every row of x (one player's games sorted by date are weighted by how long ago they were, not by game count):
+    cal_days_last: days since his previous game; cal_age8: average age in days of his last 8 games; cal_cur8: share of those 8 played this season;
+    cal_<stat>_h30 / _h120: averages of earlier games weighted 0.5 ** (days ago / 30 or 120)."""
+    cols = ["cal_days_last", "cal_age8", "cal_cur8"] + [f"cal_{c}_h{h}" for c in TM_STATS for h in TM_HALF]
     out = np.full((len(x), len(cols)), np.nan)
     pos = {i: k for k, i in enumerate(x.index)}
     for _, g in x.groupby("player_id", sort=False):
@@ -466,7 +466,7 @@ def build() -> pd.DataFrame:
     return pd.concat([F, pd.DataFrame({f"is_{p}": (F.position == p).astype(float) for p in POS})], axis=1)
 
 
-GROUPS = {"tm": "calendar time: days since the last game, age of the recent games, share of them from this season, day-weighted averages",
+GROUPS = {"cal": "calendar time: days since the last game, age of the recent games, share of them from this season, day-weighted averages",
           "aly": "adjusted line yards and companion run-blocking stats, for the offense and the opposing run defense",
           "ol": "offensive-line stability (same five starters as last game, games together, experience, recent continuity)",
           "qbs": "the quarterback: his recent form and efficiency, experience, and the player's history with him",
