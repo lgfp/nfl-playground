@@ -1,0 +1,37 @@
+team_abbr,team_name,team_nick,team_color,team_color2,team_logo_espn,team_logo_squared
+ARI,Arizona Cardinals,Cardinals,#97233F,#000000,https://a.espncdn.com/i/teamlogos/nfl/500/ari.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/ARI.png
+ATL,Atlanta Falcons,Falcons,#A71930,#000000,https://a.espncdn.com/i/teamlogos/nfl/500/atl.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/ATL.png
+BAL,Baltimore Ravens,Ravens,#241773,#9E7C0C,https://a.espncdn.com/i/teamlogos/nfl/500/bal.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/BAL.png
+BUF,Buffalo Bills,Bills,#00338D,#C60C30,https://a.espncdn.com/i/teamlogos/nfl/500/buf.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/BUF.png
+CAR,Carolina Panthers,Panthers,#0085CA,#000000,https://a.espncdn.com/i/teamlogos/nfl/500-dark/car.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/CAR.png
+CHI,Chicago Bears,Bears,#0B162A,#E64100,https://a.espncdn.com/i/teamlogos/nfl/500/chi.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/CHI.png
+CIN,Cincinnati Bengals,Bengals,#FB4F14,#000000,https://a.espncdn.com/i/teamlogos/nfl/500/cin.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/CIN.png
+CLE,Cleveland Browns,Browns,#FF3C00,#311D00,https://a.espncdn.com/i/teamlogos/nfl/500/cle.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/CLE.png
+DAL,Dallas Cowboys,Cowboys,#002244,#B0B7BC,https://a.espncdn.com/i/teamlogos/nfl/500/dal.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/DAL.png
+DEN,Denver Broncos,Broncos,#002244,#FB4F14,https://a.espncdn.com/i/teamlogos/nfl/500/den.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/DEN.png
+DET,Detroit Lions,Lions,#0076B6,#B0B7BC,https://a.espncdn.com/i/teamlogos/nfl/500/det.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/DET.png
+GB,Green Bay Packers,Packers,#203731,#FFB612,https://a.espncdn.com/i/teamlogos/nfl/500/gb.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/GB.png
+HOU,Houston Texans,Texans,#03202F,#A71930,https://a.espncdn.com/i/teamlogos/nfl/500/hou.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/HOU.png
+IND,Indianapolis Colts,Colts,#002C5F,#a5acaf,https://a.espncdn.com/i/teamlogos/nfl/500/ind.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/IND.png
+JAX,Jacksonville Jaguars,Jaguars,#006778,#000000,https://a.espncdn.com/i/teamlogos/nfl/500/jax.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/JAX.png
+KC,Kansas City Chiefs,Chiefs,#E31837,#FFB612,https://a.espncdn.com/i/teamlogos/nfl/500/kc.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/KC.png
+LA,Los Angeles Rams,Rams,#003594,#FFD100,https://a.espncdn.com/i/teamlogos/nfl/500/lar.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/LA.png
+LAC,Los Angeles Chargers,Chargers,#007BC7,#ffc20e,https://a.espncdn.com/i/teamlogos/nfl/500/lac.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/LAC.png
+LAR,Los Angeles Rams,Rams,#003594,#FFD100,https://a.espncdn.com/i/teamlogos/nfl/500/lar.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/LAR.png
+LV,Las Vegas Raiders,Raiders,#000000,#A5ACAF,https://a.espncdn.com/i/teamlogos/nfl/500/lv.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/LV.png
+MIA,Miami Dolphins,Dolphins,#008E97,#F58220,https://a.espncdn.com/i/teamlogos/nfl/500/mia.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/MIA.png
+MIN,Minnesota Vikings,Vikings,#4F2683,#FFC62F,https://a.espncdn.com/i/teamlogos/nfl/500/min.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/MIN.png
+NE,New England Patriots,Patriots,#002244,#C60C30,https://a.espncdn.com/i/teamlogos/nfl/500/ne.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/NE.png
+NO,New Orleans Saints,Saints,#D3BC8D,#000000,https://a.espncdn.com/i/teamlogos/nfl/500/no.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/NO.png
+NYG,New York Giants,Giants,#0B2265,#A71930,https://a.espncdn.com/i/teamlogos/nfl/500/nyg.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/NYG.png
+NYJ,New York Jets,Jets,#003F2D,#000000,https://a.espncdn.com/i/teamlogos/nfl/500/nyj.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/NYJ.png
+OAK,Oakland Raiders,Raiders,#000000,#A5ACAF,https://a.espncdn.com/i/teamlogos/nfl/500/lv.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/OAK.png
+PHI,Philadelphia Eagles,Eagles,#004C54,#A5ACAF,https://a.espncdn.com/i/teamlogos/nfl/500/phi.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/PHI.png
+PIT,Pittsburgh Steelers,Steelers,#000000,#FFB612,https://a.espncdn.com/i/teamlogos/nfl/500/pit.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/PIT.png
+SD,San Diego Chargers,Chargers,#007BC7,#ffc20e,https://a.espncdn.com/i/teamlogos/nfl/500/lac.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/SD.png
+SEA,Seattle Seahawks,Seahawks,#002244,#69be28,https://a.espncdn.com/i/teamlogos/nfl/500/sea.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/SEA.png
+SF,San Francisco 49ers,49ers,#AA0000,#B3995D,https://a.espncdn.com/i/teamlogos/nfl/500/sf.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/SF.png
+STL,St. Louis Rams,Rams,#003594,#FFD100,https://a.espncdn.com/i/teamlogos/nfl/500/lar.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/STL.png
+TB,Tampa Bay Buccaneers,Buccaneers,#A71930,#322F2B,https://a.espncdn.com/i/teamlogos/nfl/500/tb.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/TB.png
+TEN,Tennessee Titans,Titans,#4495D2,#D50A0A,https://a.espncdn.com/i/teamlogos/nfl/500/ten.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/TEN.png
+WAS,Washington Commanders,Commanders,#5A1414,#FFB612,https://a.espncdn.com/i/teamlogos/nfl/500/wsh.png,https://github.com/nflverse/nflverse-pbp/raw/master/squared_logos/WAS.png

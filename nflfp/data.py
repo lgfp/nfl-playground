@@ -15,6 +15,8 @@ STATS_URL = "https://github.com/nflverse/nflverse-data/releases/download/stats_p
 PBP_URL = "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.csv.gz"
 PBP_COLS = ["season", "week", "season_type", "posteam", "defteam", "play_type", "two_point_attempt", "rushing_yards", "passing_yards"]
 GAMES_URL = "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv"
+TEAMS_URL = "https://github.com/nflverse/nflverse-data/releases/download/teams/teams_colors_logos.csv"
+LEGACY_TEAMS = {"LA", "OAK", "SD", "STL"}  # old franchise codes nflverse keeps beside the current LAR / LV / LAC rows
 
 
 def current_season(today: pd.Timestamp | None = None) -> int:
@@ -54,6 +56,12 @@ def load_player_weeks(season: int, refresh: bool = False) -> pd.DataFrame:
 def load_schedule(season: int, refresh: bool = False) -> pd.DataFrame:
     g = pd.read_csv(_fetch(GAMES_URL, "games.csv", refresh, CACHE_TTL_HOURS), low_memory=False)
     return g[(g["season"] == season) & (g["game_type"] == "REG")]
+
+
+def load_teams(refresh: bool = False) -> pd.DataFrame:
+    """The 32 current teams (index team_abbr) with names, colors and logo URLs, from nflverse's team table."""
+    teams = pd.read_csv(_fetch(TEAMS_URL, "teams.csv", refresh, CACHE_TTL_HOURS))
+    return teams[~teams["team_abbr"].isin(LEGACY_TEAMS)].set_index("team_abbr")
 
 
 def next_matchups(schedule: pd.DataFrame, week: int | None = None) -> tuple[int, list[tuple[str, str]]]:

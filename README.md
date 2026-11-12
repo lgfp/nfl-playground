@@ -233,3 +233,25 @@ model on a roster. `ml_hedge.py` quantifies a hedge against an opponent's stack 
 
 **Hand-built vs black box, and the research record.** The hand-built modules 1-4 and the black-box model are both documented above; `analysis/` also holds the tests behind each
 negative result (`ml_scoring_context`, `ml_td_opps`, `ml_vulture`, `ml_td_adjust`, `ml_diagnose`, ...).
+
+## Ranking graphic
+
+```
+uv run python -m nflfp.ranking_graphic "DEN,TEN,TB,CIN=DET,NE,WAS,KC,BUF,DAL=NYJ=PHI,MIA,..." -o ranking.png
+uv run python -m nflfp.ranking_graphic --file order.txt --bg "#14213d" --number-color "#fca311" --tie-color white --font "Inter:bold"
+uv run python -m nflfp.ranking_graphic --list-teams
+```
+
+The 32 team logos in rank order (best first), four columns of eight, each with its rank number and `TIE` under tied numbers
+(`=` joins tied teams; a three-way tie for 10th is 10, 10, 10 and then 13). Teams can be written as `DEN`, `Broncos` or `Denver Broncos`;
+fewer than 32 teams works too (`--rows` sets the column height). Team names and logo URLs come from nflverse's team table
+(logos cached in `.cache/`).
+
+Styling (all flags also exist as `Style` fields for use from Python - `make_graphic(order, Style(...))`): `--bg` color or `transparent`,
+`--bg-image`, `--font` / `--number-color` / `--number-scale`, `--tie-color` / `--tie-font` / `--tie-scale` / `--tie-text`, `--width` /
+`--height` / `--rows`. A font is a .ttf/.otf path or an installed font name (`Inter:bold` works where fontconfig is installed).
+
+Logos: `--logo-source espn` (default, 500 px transparent PNGs) or `squared`; `--logo-dir folder` (files named `HOU.png`) and
+`--logo HOU=my_texans.png` replace individual teams, so old or custom logos are easy. If the machine cannot reach the logo host,
+the error says so and `--logo-dir` is the way around it. The dark-background logo variants are not used, so very dark backgrounds
+hide the black logos (Saints, Raiders).
