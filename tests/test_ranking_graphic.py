@@ -110,6 +110,16 @@ def test_background_image_fills_the_canvas(teams, tmp_path):
     assert img.getpixel((1990, 1890))[:3] == (1, 2, 3)
 
 
+def test_background_image_opacity_fades_toward_the_background_color(teams, tmp_path):
+    Image.new("RGB", (50, 20), (200, 100, 0)).save(tmp_path / "bg.png")
+    entries = R.rank_entries(["DEN"], teams)
+    style = R.Style(background="#000000", background_image=str(tmp_path / "bg.png"), background_image_opacity=0.5)
+    px = R.draw_ranking(entries, solid_logos(entries), style).getpixel((1990, 1890))
+    assert all(abs(got - want) <= 1 for got, want in zip(px[:3], (100, 50, 0)))   # halfway between black and the picture
+    assert R.draw_ranking(entries, solid_logos(entries), R.Style(
+        background="#000000", background_image=str(tmp_path / "bg.png"), background_image_opacity=0.0)).getpixel((1990, 1890))[:3] == (0, 0, 0)
+
+
 def test_fewer_rows_means_more_columns(teams):
     entries = R.rank_entries(list(teams.index)[:8], teams)
     img = R.draw_ranking(entries, solid_logos(entries), R.Style(rows=4, number_color="#ff0000"))

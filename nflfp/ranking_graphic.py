@@ -102,6 +102,7 @@ def rank_entries(order: Iterable, teams: pd.DataFrame) -> list[Entry]:
 class Style:
     background: str = "#f2f2f2"          # any color Pillow parses (name, #rrggbb, rgb(...)) or "transparent" (PNG only)
     background_image: str | None = None  # optional picture, scaled and cropped to fill the canvas (over `background`)
+    background_image_opacity: float = 1.0  # < 1 washes the picture out toward `background`, to keep the numbers readable
     number_color: str = "#e02a2a"
     number_font: str | None = None       # path or installed font name; None = bold sans
     number_scale: float = 1.0            # 1.0 = a number about 46% of a row's height
@@ -212,7 +213,9 @@ def draw_ranking(entries: list[Entry], logos: dict[str, Image.Image], style: Sty
     W, H = style.width, style.height
     canvas = Image.new("RGBA", (W, H), _color(style.background))
     if style.background_image:
-        canvas.alpha_composite(ImageOps.fit(Image.open(style.background_image).convert("RGBA"), (W, H), Image.LANCZOS))
+        pic = ImageOps.fit(Image.open(style.background_image).convert("RGBA"), (W, H), Image.LANCZOS)
+        pic.putalpha(pic.getchannel("A").point(lambda a: round(a * min(1.0, max(0.0, style.background_image_opacity)))))
+        canvas.alpha_composite(pic)
 
     n_cols = max(1, math.ceil(len(entries) / style.rows))
     pad_x, pad_y = 0.03 * W, 0.03 * H
@@ -269,6 +272,8 @@ def main() -> None:
     d = Style()
     ap.add_argument("--bg", default=d.background, help="background color (name, #hex or 'transparent')")
     ap.add_argument("--bg-image", help="background picture, scaled and cropped to fill the canvas")
+    ap.add_argument("--bg-image-opacity", type=float, default=d.background_image_opacity,
+                    help="0-1; below 1 the picture fades toward --bg (a soft backdrop)")
     ap.add_argument("--number-color", default=d.number_color)
     ap.add_argument("--font", help="number font: path to .ttf/.otf, or an installed font name (e.g. 'Inter:bold')")
     ap.add_argument("--number-scale", type=float, default=d.number_scale)
@@ -306,7 +311,7 @@ def main() -> None:
             ap.error(f"--logo wants TEAM=PATH_OR_URL with a known team, got {spec!r}")
         overrides[code] = src
 
-    style = Style(background=a.bg, background_image=a.bg_image, number_color=a.number_color, number_font=a.font,
+    style = Style(background=a.bg, background_image=a.bg_image, background_image_opacity=a.bg_image_opacity, number_color=a.number_color, number_font=a.font,
                   number_scale=a.number_scale, tie_color=a.tie_color, tie_font=a.tie_font, tie_scale=a.tie_scale,
                   tie_text=a.tie_text, width=a.width, height=a.height, rows=a.rows, logo_source=a.logo_source,
                   logo_dir=a.logo_dir, logo_overrides=overrides, logo_scale=a.logo_scale)
