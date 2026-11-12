@@ -4,7 +4,7 @@ Every player gets a distribution (analysis/ml_dist.py: quantile models around th
 on opposite sides of the same game move together as they have since 2021 (QB-WR same team about +0.4, and so on; Gaussian copula), everyone else independently.
 All legal lineups from your roster are scored against the same simulated opponent totals, so their win probabilities are directly comparable.
 
-    uv run python -m analysis.ml_matchup <username> [week] [--taxi] [--sims 100000] [--version simple|scaled|medium|components] [--espn]
+    uv run python -m analysis.ml_matchup <username> [week] [--taxi] [--sims 100000] [--version simple|scaled|medium|components] [--espn] [--add "Name,Name"]
 Kickers and defenses are not modelled: each side gets the same independent draw (K 8 +/- 4, DEF 7.5 +/- 5.5), or the real score if already played.
 """
 from __future__ import annotations
@@ -92,6 +92,11 @@ if __name__ == "__main__":
     my_ids = [s for s in me["players"] if s in rows.index and s not in skip]
     no_row = [f"{nm(s)} ({dump.get(s, {}).get('position')} {dump.get(s, {}).get('team')}{', taxi' if s in (me.get('taxi') or []) else ''}{', reserve' if s in (me.get('reserve') or []) else ''})"
               for s in me["players"] if dump.get(s, {}).get("position") in MD.POS and s not in my_ids]
+    if "--add" in sys.argv:                                              # hypothetical pickups (free agents), by name
+        want = {sleeper.norm(n) for n in sys.argv[sys.argv.index("--add") + 1].split(",")}
+        added = [s for s, n in zip(rows.index, rows.player_display_name) if sleeper.norm(n) in want and s not in my_ids]
+        print("hypothetical additions:", ", ".join(f"{nm(s)} ({rows.loc[s, 'position']} {rows.loc[s, 'team']})" for s in added))
+        my_ids = my_ids + added
     opp_ids = [s for s in opp_m["starters"] if s in rows.index]
     opp_missing = [nm(s) or s for s in opp_m["starters"] if s not in rows.index and dump.get(s, {}).get("position") in MD.POS]
     ids = my_ids + [s for s in opp_ids if s not in my_ids]
