@@ -18,7 +18,12 @@ def load_env(seasons=(2024, 2025, 2026)) -> pd.DataFrame:
     parts = []
     for y in seasons:
         sched = data.load_schedule(y)
-        parts.append(TY.environment(sched, weather.game_weather(sched)))
+        try:
+            wx = weather.game_weather(sched)
+        except Exception as e:                       # rate limit / network: carry on without wind (treated as average) rather than fail
+            print(f"warning: no weather for {y} ({e}); wind left out", flush=True)
+            wx = None
+        parts.append(TY.environment(sched, wx))
     return pd.concat(parts, ignore_index=True)
 
 
