@@ -113,6 +113,7 @@ class Style:
     width: int = 2000
     height: int = 1900
     rows: int = 8                        # teams per column; columns = ceil(teams / rows), filled top to bottom
+    padding: tuple[float, float, float, float] = (0.03, 0.03, 0.03, 0.03)  # left, top, right, bottom margin around the grid, as fractions of the canvas
     logo_source: str = "espn"            # nflverse logo column: "espn" (500 px, transparent) or "squared"
     logo_dir: str | None = None          # folder with <ABBR>.png files that take priority over downloads
     logo_overrides: dict[str, str] = field(default_factory=dict)  # {"HOU": "my_logo.png" or "https://..."} wins over all
@@ -218,8 +219,9 @@ def draw_ranking(entries: list[Entry], logos: dict[str, Image.Image], style: Sty
         canvas.alpha_composite(pic)
 
     n_cols = max(1, math.ceil(len(entries) / style.rows))
-    pad_x, pad_y = 0.03 * W, 0.03 * H
-    cw, ch = (W - 2 * pad_x) / n_cols, (H - 2 * pad_y) / style.rows
+    pl, pt, pr, pb = style.padding
+    pad_x, pad_y = pl * W, pt * H
+    cw, ch = W * (1 - pl - pr) / n_cols, H * (1 - pt - pb) / style.rows
     num_font = load_font(style.number_font, 0.46 * ch * style.number_scale)
     tie_font = load_font(style.tie_font or style.number_font, 0.17 * ch * style.tie_scale)
     num_fill, tie_fill = _color(style.number_color), _color(style.tie_color)
@@ -239,7 +241,8 @@ def draw_ranking(entries: list[Entry], logos: dict[str, Image.Image], style: Sty
         base = _draw_centered(draw, x0 + 0.11 * cw, cy, str(e.rank), num_font, num_fill, ref="0")
         if e.tie:
             cap = -draw.textbbox((0, 0), "H", font=tie_font, anchor="ls")[1]
-            _draw_centered(draw, x0 + 0.11 * cw, base + 0.03 * ch + cap / 2, style.tie_text, tie_font, tie_fill, ref="H")
+            below = max(0, draw.textbbox((0, 0), str(e.rank), font=num_font, anchor="ls")[3])   # a digit that dips under the baseline (handwriting fonts)
+            _draw_centered(draw, x0 + 0.11 * cw, base + below + 0.03 * ch + cap / 2, style.tie_text, tie_font, tie_fill, ref="H")
     canvas.alpha_composite(layer)
     return canvas
 
@@ -284,6 +287,8 @@ def main() -> None:
     ap.add_argument("--width", type=int, default=d.width)
     ap.add_argument("--height", type=int, default=d.height)
     ap.add_argument("--rows", type=int, default=d.rows, help="teams per column")
+    ap.add_argument("--padding", default=",".join(str(v) for v in d.padding),
+                    help="margin around the grid as fractions of the canvas: LEFT,TOP,RIGHT,BOTTOM (room for a frame or clip)")
     ap.add_argument("--logo-source", choices=sorted(LOGO_COLUMNS), default=d.logo_source)
     ap.add_argument("--logo-dir", help="folder of <ABBR>.png logos that take priority over downloaded ones")
     ap.add_argument("--logo", action="append", default=[], metavar="TEAM=PATH_OR_URL", help="logo for one team (repeatable)")
@@ -313,7 +318,7 @@ def main() -> None:
 
     style = Style(background=a.bg, background_image=a.bg_image, background_image_opacity=a.bg_image_opacity, number_color=a.number_color, number_font=a.font,
                   number_scale=a.number_scale, tie_color=a.tie_color, tie_font=a.tie_font, tie_scale=a.tie_scale,
-                  tie_text=a.tie_text, width=a.width, height=a.height, rows=a.rows, logo_source=a.logo_source,
+                  tie_text=a.tie_text, width=a.width, height=a.height, rows=a.rows, padding=tuple(float(v) for v in a.padding.split(",")), logo_source=a.logo_source,
                   logo_dir=a.logo_dir, logo_overrides=overrides, logo_scale=a.logo_scale)
     try:
         entries = rank_entries(parse_order(text), teams)

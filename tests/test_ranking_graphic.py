@@ -90,6 +90,19 @@ def test_tie_label_uses_its_own_color_and_only_appears_for_ties(teams):
     assert count(img, (255, 0, 0), row(2)) > 200
 
 
+def test_tie_label_clears_digits_that_descend_below_the_baseline(teams, monkeypatch):
+    entries = R.rank_entries([["DEN", "TEN"]], teams)
+    base = R.draw_ranking(entries, solid_logos(entries), R.Style())
+    real = R.ImageDraw.ImageDraw.textbbox
+    def deeper(self, xy, text, font=None, anchor=None, **kw):      # pretend every rank digit has a 40 px descender
+        box = real(self, xy, text, font=font, anchor=anchor, **kw)
+        return (box[0], box[1], box[2], box[3] + 40) if text.isdigit() and text != "0" else box
+    monkeypatch.setattr(R.ImageDraw.ImageDraw, "textbbox", deeper)
+    lowered = R.draw_ranking(entries, solid_logos(entries), R.Style())
+    rows = lambda im: np.nonzero((np.asarray(im.convert("RGB"))[:, :900] == (0, 0, 0)).all(axis=2).any(axis=1))[0]
+    assert rows(lowered).max() > rows(base).max() + 30             # the TIE label moved down by the descender depth
+
+
 def test_tie_text_is_customizable(teams):
     entries = R.rank_entries([["DEN", "TEN"]], teams)
     a = R.draw_ranking(entries, solid_logos(entries), R.Style(tie_text="TIE"))
@@ -118,6 +131,17 @@ def test_background_image_opacity_fades_toward_the_background_color(teams, tmp_p
     assert all(abs(got - want) <= 1 for got, want in zip(px[:3], (100, 50, 0)))   # halfway between black and the picture
     assert R.draw_ranking(entries, solid_logos(entries), R.Style(
         background="#000000", background_image=str(tmp_path / "bg.png"), background_image_opacity=0.0)).getpixel((1990, 1890))[:3] == (0, 0, 0)
+
+
+def test_padding_keeps_the_grid_inside_the_margins(teams):
+    entries = R.rank_entries(list(teams.index), teams)
+    style = R.Style(number_color="#ff0000", padding=(0.2, 0.3, 0.1, 0.1))
+    img = R.draw_ranking(entries, solid_logos(entries), style)
+    ink = np.asarray(img.convert("RGB"))
+    not_bg = (ink != np.asarray(Image.new("RGB", img.size, style.background).convert("RGB"))).any(axis=2)
+    ys, xs = np.nonzero(not_bg)
+    assert xs.min() >= 0.2 * img.width - 5 and xs.max() <= 0.9 * img.width + 5
+    assert ys.min() >= 0.3 * img.height - 5 and ys.max() <= 0.9 * img.height + 5
 
 
 def test_fewer_rows_means_more_columns(teams):

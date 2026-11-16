@@ -249,7 +249,7 @@ fewer than 32 teams works too (`--rows` sets the column height). Team names and 
 
 Styling (all flags also exist as `Style` fields for use from Python - `make_graphic(order, Style(...))`): `--bg` color or `transparent`,
 `--bg-image`, `--font` / `--number-color` / `--number-scale`, `--tie-color` / `--tie-font` / `--tie-scale` / `--tie-text`, `--width` /
-`--height` / `--rows`. A font is a .ttf/.otf path or an installed font name (`Inter:bold` works where fontconfig is installed).
+`--height` / `--rows`, `--padding L,T,R,B` (grid margins as canvas fractions, to leave room for a frame or clip), `--bg-image-opacity`. A font is a .ttf/.otf path or an installed font name (`Inter:bold` works where fontconfig is installed).
 
 Logos: `--logo-source espn` (default, 500 px transparent PNGs) or `squared`; `--logo-dir folder` (files named `HOU.png`) and
 `--logo HOU=my_texans.png` replace individual teams, so old or custom logos are easy. If the machine cannot reach the logo host,
