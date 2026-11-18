@@ -86,7 +86,7 @@ def best_lineup(df: pd.DataFrame, col: str):
     qb = pos["QB"].head(1)
     if qb.empty:
         return best
-    skill = df[df.position.isin(["RB", "WR", "TE"])].sort_values(col, ascending=False).head(10)
+    skill = df[df.position.isin(["RB", "WR", "TE"]) & df[col].notna()].sort_values(col, ascending=False).head(11)
     for combo in itertools.combinations(skill.index, 7):
         c = skill.loc[list(combo)]
         if (c.position == "RB").sum() >= 2 and (c.position == "WR").sum() >= 2 and (c.position == "TE").sum() >= 1:
@@ -195,5 +195,5 @@ if __name__ == "__main__":
     print("\nbest lineup by each model (QB, 2 RB, 2 WR, TE, 2 FLEX), sum of that model's points:")
     for c in cols + ["avg_all"]:
         tot, names = best_lineup(R.rename(columns={}).assign(name_=R.name_), c)
-        print(f"  {c:15s} {tot:6.1f} | " + ", ".join(sorted(names)))
+        print(f"  {c:15s} {tot:6.1f} | " + (", ".join(sorted(names)) if names else "no legal lineup"))
     print("\ncurrent starters:", ", ".join(sorted(R[R.start == "S"].name_)))
