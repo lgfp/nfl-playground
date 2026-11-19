@@ -143,3 +143,37 @@ def test_feed_bye_week_has_no_projection():
 def test_feed_defense_return_yards_are_dropped_and_kicker_fifty_plus_is_aliased():
     assert lo.points({"sack": 3.0, "def_pr_yd": 170.0}, SC, "DEF") == pytest.approx(3.0)
     assert lo.points({"fgm_50p": 0.5, "fgmiss_50p": 0.2}, SC, "K") == pytest.approx(0.5 * 4 - 0.2 * 0.5)
+
+
+# ------------------------------------------------------------------------------------------------------------ exact status
+def status_season(wins, schedule, k):
+    T = len(wins)
+    return so.Season(ids=list("ABCDEFGH"[:T]), wins=np.array(wins, float), pf=np.zeros(T), schedule=schedule, mean={11: np.full(T, 150.0)}, n_playoff=k)
+
+
+def test_clinched_and_eliminated():
+    s = status_season([5, 5, 1, 0], {11: [(0, 1), (2, 3)]}, k=2)
+    assert so.clinch_status(s) == ["clinched", "clinched", "eliminated", "eliminated"]
+
+
+def test_alive_only_through_points_tiebreak():
+    s = status_season([5, 5, 3], {}, k=1)                    # A and B tied for the one spot, nothing left to play
+    assert so.clinch_status(s) == ["alive (points tiebreak only)", "alive (points tiebreak only)", "eliminated"]
+
+
+def test_alive_when_wins_alone_can_decide():
+    s = status_season([4, 4], {11: [(0, 1)]}, k=1)
+    assert so.clinch_status(s) == ["alive", "alive"]
+
+
+def test_status_agrees_with_simulation():
+    s = status_season([6, 5, 4, 1, 0, 0], {11: [(0, 3), (1, 4), (2, 5)], 12: [(0, 1), (2, 3), (4, 5)]}, k=2)
+    s.mean[12] = s.mean[11]
+    st = so.clinch_status(s)
+    r = so.simulate(s, sd=40.0, n=20000, seed=3)
+    for t, name in enumerate(st):
+        if name == "eliminated":
+            assert r.p_playoffs[t] == 0.0
+        if name == "clinched":
+            assert r.p_playoffs[t] == 1.0
+    assert "eliminated" in st and "alive" in st

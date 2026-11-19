@@ -1,6 +1,6 @@
 """Playoff and championship odds for a Sleeper league, taking Sleeper's own projections as the truth.
 
-    uv run python -m nflfp.league_odds <sleeper username> [--league NAME] [--sims 200000] [--sd 23] [--include-reserve] [--include-taxi]
+    uv run python -m nflfp.league_odds <sleeper username> [--league NAME] [--sims 200000] [--sd 23] [--exclude-reserve] [--include-taxi]
 
 Everything comes from Sleeper's public API: standings, the remaining schedule, the playoff bracket, rosters, and the weekly projections feed
 (`api.sleeper.app/projections/nfl/{season}/{week}`), which is turned into points under the league's own scoring settings (kickers and defenses included).
@@ -173,9 +173,6 @@ def build(L: dict, rosters: list[dict], users: list[dict], state: dict, include_
             for p in owned:
                 if p not in proj:
                     continue
-                inj = (meta.get(p) or {}).get("injury_status")
-                if inj in so.OUT_FOR_SEASON or (inj == "Out" and w == current):
-                    continue
                 cand.append((p, proj[p][0], proj[p][1]))
             total, starters = so.best_lineup(cand, slots)
             mean[w][i] = total
@@ -193,7 +190,7 @@ def main() -> None:
     ap.add_argument("--shrink", type=float, default=1.0, help="pull each team's weekly projection toward that week's league average (1 = projections taken as true; "
                     "in this league's finished weeks the fitted slope of actual on projected differences was ~0.6)")
     ap.add_argument("--lineups", action="store_true", help="print every team's projected starters for the current week")
-    ap.add_argument("--include-reserve", action="store_true", help="count players in IR slots as available")
+    ap.add_argument("--exclude-reserve", action="store_true", help="ignore players in IR slots (default: they count in the weeks the feed projects them)")
     ap.add_argument("--include-taxi", action="store_true", help="count taxi-squad players as available")
     a = ap.parse_args()
 
@@ -205,7 +202,7 @@ def main() -> None:
     rosters, users = sleeper.get(f"league/{L['league_id']}/rosters"), sleeper.get(f"league/{L['league_id']}/users")
     state_week = max(int(state["week"]), int(L["settings"].get("last_scored_leg", 0)) + 1)
     cal = calibrate(L, scoring, L["season"], state_week - 1, state_week)
-    s, info = build(L, rosters, users, state, a.include_reserve, a.include_taxi, scoring, cal["def_extra"])
+    s, info = build(L, rosters, users, state, not a.exclude_reserve, a.include_taxi, scoring, cal["def_extra"])
     sd = a.sd if a.sd is not None else cal["sd"]
     if a.shrink != 1.0:
         s.mean = {w: m.mean() + a.shrink * (m - m.mean()) for w, m in s.mean.items()}
@@ -219,6 +216,9 @@ def main() -> None:
     res = so.simulate(s, sd=sd, n=a.sims)
     res.insert(1, "record", [f"{int(w)}-{int(l)}" for w, l in zip(s.wins, s.losses)])
     res.insert(2, "pf", s.pf)
+    status = so.clinch_status(s)
+    if status:
+        res["status"] = status
     mine = [r for r in rosters if r["owner_id"] == uid]
     me = s.ids[[r["roster_id"] for r in rosters].index(mine[0]["roster_id"])] if mine else None
 
@@ -258,7 +258,7 @@ def main() -> None:
 
 
 def args_note(a) -> str:
-    return "reserve/taxi " + ("included" if a.include_reserve and a.include_taxi else "excluded" if not (a.include_reserve or a.include_taxi) else "partly included")
+    return f"reserve {'excluded' if a.exclude_reserve else 'included when projected'}, taxi {'included' if a.include_taxi else 'excluded'}"
 
 
 if __name__ == "__main__":

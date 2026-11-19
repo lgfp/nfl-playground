@@ -15,7 +15,6 @@ import pandas as pd
 
 FLEX_ELIGIBLE = {"FLEX": ("RB", "WR", "TE"), "SUPER_FLEX": ("QB", "RB", "WR", "TE"), "REC_FLEX": ("WR", "TE"), "WRRB_FLEX": ("RB", "WR")}
 FIXED = ("QB", "RB", "WR", "TE", "K", "DEF")
-OUT_FOR_SEASON = ("IR", "PUP", "Sus", "NA")        # injury statuses treated as unavailable for every remaining week ("Out" only for the first)
 
 
 # ------------------------------------------------------------------------------------------------------ points and lineups
@@ -159,3 +158,26 @@ def simulate(s: Season, sd: float | np.ndarray = 21.0, n: int = 100000, seed: in
                 third[rows, winner[m["id"]]] = True
         res["p_final"], res["p_champion"], res["p_third"] = reach_final.mean(axis=0), champ.mean(axis=0), third.mean(axis=0)
     return res
+
+
+def clinch_status(s: Season, max_games: int = 22) -> list[str] | None:
+    """Exact (not simulated) playoff status of every team from the win/loss outcomes of all remaining regular-season games (draws ignored):
+    'clinched' (in even if every tie on wins goes against the team), 'eliminated' (out even if every tie goes its way), 'alive (points tiebreak only)'
+    (cannot make it on wins alone in any outcome, so only a tiebreak on points for could save it) or 'alive'. None if more than `max_games` remain."""
+    games = [(a, b) for _, ps in sorted(s.schedule.items()) for a, b in ps]
+    G, T, k = len(games), len(s.ids), s.n_playoff
+    if G > max_games:
+        return None
+    lo_more, hi_geq, lo_geq = np.full(T, T), np.zeros(T, int), np.full(T, T)
+    chunk = 1 << min(G, 16)
+    for start in range(0, 1 << G, chunk):
+        idx = np.arange(start, min(start + chunk, 1 << G))
+        bits = (idx[:, None] >> np.arange(G)) & 1                       # 1: the first team of the game wins
+        w = np.tile(np.asarray(s.wins, float), (len(idx), 1))
+        for g, (a, b) in enumerate(games):
+            w[:, a] += bits[:, g]
+            w[:, b] += 1 - bits[:, g]
+        more = (w[:, None, :] > w[:, :, None]).sum(axis=2)              # other teams with strictly more wins than team t
+        geq = (w[:, None, :] >= w[:, :, None]).sum(axis=2) - 1          # other teams with at least as many wins
+        lo_more, hi_geq, lo_geq = np.minimum(lo_more, more.min(axis=0)), np.maximum(hi_geq, geq.max(axis=0)), np.minimum(lo_geq, geq.min(axis=0))
+    return ["clinched" if hi_geq[t] <= k - 1 else "eliminated" if lo_more[t] >= k else "alive (points tiebreak only)" if lo_geq[t] >= k else "alive" for t in range(T)]
