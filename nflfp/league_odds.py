@@ -1,6 +1,6 @@
 """Playoff and championship odds for a Sleeper league, taking Sleeper's own projections as the truth.
 
-    uv run python -m nflfp.league_odds <sleeper username> [--league NAME] [--sims 200000] [--sd 23] [--exclude-reserve] [--include-taxi]
+    uv run python -m nflfp.league_odds <sleeper username> [--league NAME] [--sims 200000] [--sd 23] [--exclude-reserve] [--include-taxi] [--image odds.png]
 
 Everything comes from Sleeper's public API: standings, the remaining schedule, the playoff bracket, rosters, and the weekly projections feed
 (`api.sleeper.app/projections/nfl/{season}/{week}`), which is turned into points under the league's own scoring settings (kickers and defenses included).
@@ -189,6 +189,7 @@ def main() -> None:
     ap.add_argument("--sd", type=float, help="weekly team-score sd; default: measured from the league's finished weeks")
     ap.add_argument("--shrink", type=float, default=1.0, help="pull each team's weekly projection toward that week's league average (1 = projections taken as true; "
                     "in this league's finished weeks the fitted slope of actual on projected differences was ~0.6)")
+    ap.add_argument("--image", metavar="PATH", help="also write a shareable PNG of the odds table (.html if no Chromium/Chrome is installed)")
     ap.add_argument("--lineups", action="store_true", help="print every team's projected starters for the current week")
     ap.add_argument("--exclude-reserve", action="store_true", help="ignore players in IR slots (default: they count in the weeks the feed projects them)")
     ap.add_argument("--include-taxi", action="store_true", help="count taxi-squad players as available")
@@ -244,6 +245,16 @@ def main() -> None:
     print("\nRemaining regular-season matchups:")
     for w, pairs in s.schedule.items():
         print(f"  week {w}: " + "; ".join(f"{s.ids[x]} ({s.mean[w][x]:.0f}) vs {s.ids[y]} ({s.mean[w][y]:.0f})" for x, y in pairs))
+    if a.image:
+        from . import league_card
+        order = res.sort_values(["p_champion", "p_playoffs"], ascending=False)
+        done, left = info["current"] - 1, len(s.schedule)
+        sub = (f"After week {done} \u00b7 {left} regular-season games left \u00b7 top {s.n_playoff} of {len(s.ids)} make the playoffs" if done > 0
+               else f"Before week {info['current']} \u00b7 top {s.n_playoff} of {len(s.ids)} make the playoffs")
+        now = pd.Timestamp.now()
+        foot = ["Sleeper's projections are taken as true and every team starts its best projected lineup every week.",
+                f"{a.sims:,} simulated seasons \u00b7 weekly score sd {sd:.0f} \u00b7 {now:%b} {now.day}, {now.year}"]
+        print("\nimage:", league_card.render(L["name"], order, sub, foot, a.image))
     if a.lineups:
         w = info["current"]
         for i, t in enumerate(s.ids):

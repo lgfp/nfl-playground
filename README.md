@@ -236,7 +236,7 @@ negative result (`ml_scoring_context`, `ml_td_opps`, `ml_vulture`, `ml_td_adjust
 
 ## Playoff and championship odds for a Sleeper league (`nflfp/season_odds.py`, `nflfp/league_odds.py`)
 
-    uv run python -m nflfp.league_odds <sleeper username> [--league NAME] [--sims 200000] [--sd 23] [--shrink 1.0] [--lineups] [--exclude-reserve] [--include-taxi]
+    uv run python -m nflfp.league_odds <sleeper username> [--league NAME] [--sims 200000] [--sd 23] [--shrink 1.0] [--lineups] [--exclude-reserve] [--include-taxi] [--image odds.png]
 
 For every team: expected final wins, chance to make the playoffs, chance of each seed, of reaching the final, of winning the title (and of the third-place game). **Sleeper's own
 projections are taken as true and every team starts its best projected legal lineup every remaining week**; nothing from our models is used.
@@ -263,3 +263,6 @@ points (and the best projection) is the title favourite at 40% (33% with `--shri
 **Exact status, not simulated.** A simulation cannot say "mathematically out", so `league_odds` also enumerates every win/loss outcome of the remaining regular-season games (2^16 here,
 draws ignored) and prints `clinched`, `eliminated`, `alive (points tiebreak only)` (no outcome gets the team in on wins alone) or `alive`. In the test league the 2-8 team's ceiling is 6-8 and
 it is alive only through a points tiebreak: 160 of 65,536 outcomes (all with it winning its four games) leave it level on wins for the last spot, which the simulation puts at about 0.1%.
+
+**Shareable image.** `--image odds.png` also writes a PNG: league name on top, then one row per team ranked by championship odds (then playoff odds) with record, projected wins, playoff odds and
+championship odds (`nflfp/league_card.py`, no extra dependencies: an HTML page screenshotted with headless Chromium/Chrome found via `CHROME_BIN` or the usual install paths; with none, it writes the `.html`).
