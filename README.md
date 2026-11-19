@@ -251,7 +251,7 @@ projections are taken as true and every team starts its best projected legal lin
   forced punts, interception-return yards): a constant is measured from the league's finished weeks (+9.5 per defense here). After both fixes the finished weeks show a mean
   residual of -4.2 per team-week and at most 1.4 points per starter for any position.
 - **Weekly score** = Normal(best-lineup projection, sd), floored at 0. `sd` is measured on the league's finished weeks as actual team score minus the projection of the players started
-  (22.8 here; 80 team-weeks). Results move little across sd 15-30 (the 2-8 teams stay out; the favourites' title odds change by about 10 points).
+  (22.8 here; 80 team-weeks). Results move little across sd 15-30 (the 2-8 teams stay out; the title favourite's odds move from 50% at sd 15 to 36% at sd 30).
 - **Check on finished games:** over the league's 40 head-to-heads in weeks 1-10 the model picks 65%, with log-loss 0.671 (a coin is 0.693). Projections track team strength well (correlation
   0.78 between a team's average projection and average actual) but week-to-week differences were over-stated (slope of actual on projected gaps 0.6 +/- 0.25, 80 team-weeks), so `--shrink 0.6`
   is a sensible cautious variant; here it changes the favourites by a few points and leaves the picture the same.
