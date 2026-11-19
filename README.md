@@ -233,3 +233,28 @@ model on a roster. `ml_hedge.py` quantifies a hedge against an opponent's stack 
 
 **Hand-built vs black box, and the research record.** The hand-built modules 1-4 and the black-box model are both documented above; `analysis/` also holds the tests behind each
 negative result (`ml_scoring_context`, `ml_td_opps`, `ml_vulture`, `ml_td_adjust`, `ml_diagnose`, ...).
+
+## Playoff and championship odds for a Sleeper league (`nflfp/season_odds.py`, `nflfp/league_odds.py`)
+
+    uv run python -m nflfp.league_odds <sleeper username> [--league NAME] [--sims 200000] [--sd 23] [--shrink 1.0] [--lineups] [--include-reserve] [--include-taxi]
+
+For every team: expected final wins, chance to make the playoffs, chance of each seed, of reaching the final, of winning the title (and of the third-place game). **Sleeper's own
+projections are taken as true and every team starts its best projected legal lineup every remaining week**; nothing from our models is used.
+- **Inputs from Sleeper's public API:** standings (wins, ties, points for), the remaining schedule (`matchups/{week}` pairings), the playoff bracket template (`winners_bracket`, mapped
+  to seeds; byes and two-week rounds are handled, with a standard seeded bracket as fallback), seeding rule (`playoff_seed_type`: record then points, or points), the lineup slots
+  (flex types included) and the league's `scoring_settings`.
+- **Points under the league's scoring** come from the weekly projection feed's stat lines, kickers and defenses included. Bye-week players have no projection; players Out this week are
+  skipped for this week only, IR/PUP/suspended for every week; IR-slot and taxi players are excluded unless `--include-reserve` / `--include-taxi`. Rosters are as of today (no waivers or trades).
+- **The feed's non-core fields are unreliable and are corrected.** Its `rush_fd` / `rec_fd` are exactly yards / 10 (a receiver gets more first downs than catches) and its defense
+  `def_pr_yd` / `def_kr_yd` run about 8x and 3x its own `pr_yd`. For a league that scores first downs (this one: 0.5 each) the feed overstated an average team-week by **24 points** until first
+  downs were replaced by volume x the nflverse 2023-25 per-position rate and the defense return yards dropped. Defenses also earn scoring the feed never projects (4th-down stops,
+  forced punts, interception-return yards): a constant is measured from the league's finished weeks (+9.5 per defense here). After both fixes the finished weeks show a mean
+  residual of -4.2 per team-week and at most 1.4 points per starter for any position.
+- **Weekly score** = Normal(best-lineup projection, sd), floored at 0. `sd` is measured on the league's finished weeks as actual team score minus the projection of the players started
+  (22.8 here; 80 team-weeks). Results move little across sd 15-30 (the 2-8 teams stay out; the favourites' title odds change by about 10 points).
+- **Check on finished games:** over the league's 40 head-to-heads in weeks 1-10 the model picks 65%, with log-loss 0.671 (a coin is 0.693). Projections track team strength well (correlation
+  0.78 between a team's average projection and average actual) but week-to-week differences were over-stated (slope of actual on projected gaps 0.6 +/- 0.25, 80 team-weeks), so `--shrink 0.6`
+  is a sensible cautious variant; here it changes the favourites by a few points and leaves the picture the same.
+
+Test on the author's league (week 11 of 14, top 4 of 8 qualify, two playoff rounds in weeks 15-16): the 8-2 team is 98% to qualify and 58% to take the top seed, but the 6-4 team with the most
+points (and the best projection) is the title favourite at 40% (33% with `--shrink 0.6`); the two 2-8 teams have under 0.1% of making the playoffs.
