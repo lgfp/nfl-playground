@@ -189,6 +189,14 @@ players, mostly running backs. The hand-built modules 1-4 are in the same range 
   lead backs who lose goal-line work are not over-projected on average. A TD adjustment (projected TDs vs chances-based TDs) improves Sleeper's RB projections by
   0.04 MAE but adds nothing inside the blend.
 - The models lean almost entirely on a player's recent non-TD points, snap share and the Vegas implied total.
+- **FTN data** (the user's FTN exports in `data/ftn/`, git-ignored as licensed data; loader `analysis/ftn.py`):
+  - *Last season's* team DVOA (own offense and defense, opponent offense and defense; total, pass, rush, weighted) and the player's own DYAR / DVOA / volume /
+    success / catch rate (`ml_ftn`, 29 inputs, nothing from the season predicted): black box -0.022 MAE [-0.038, -0.007], blend -0.012 [-0.020, -0.005]; mostly
+    running backs (-0.039) and quarterbacks (-0.037), nothing for receivers; ranking +0.003 Spearman. Small, but one of the few additions whose interval excludes zero.
+    Team and player halves each help a little on their own (-0.010 and -0.016).
+  - *This season's* DVOA to date (2026 only, rebuilt from FTN's single-game DVOA, `ml_ftn_inseason`): a correction learned on the misses from the opposing defense's
+    and own offense's pass / rush DVOA makes the blend worse (+0.03 MAE) and leaves Sleeper unchanged; their correlation with the misses is within +/-0.13.
+    The season-to-date tables (defense vs WR1 / WR2 / TE / RB, DVOA-adjusted fantasy points allowed, line yards) cannot be backtested without weekly snapshots.
 
 **Other tools**: `ml_ranking` (ordering metrics), `ml_diagnose` (why a player was projected where he was), `winprob` (lineup choice by simulated win probability),
 `backtest_players` / `compare_roster*` (roster-level comparisons with Sleeper).

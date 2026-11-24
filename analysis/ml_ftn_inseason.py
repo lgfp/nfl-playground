@@ -51,9 +51,11 @@ if __name__ == "__main__":
               f"own pass O {np.corrcoef(g.t_off_pass, r)[0, 1]:+.3f}  own rush O {np.corrcoef(g.t_off_rush, r)[0, 1]:+.3f}  (n={len(g)})")
     weeks = sorted(d.week.unique())
     for base, lab in (("blend|base", "our 50-50 blend"), ("sl", "Sleeper")):
-        lowo = pd.concat([correction(d, base, d.week != w, d.week == w) for w in weeks])
-        fwd = pd.concat([correction(d, base, d.week < w, d.week == w) for w in weeks])
-        d[f"{base}+lowo"], d[f"{base}+fwd"] = d[base] + lowo.reindex(d.index), d[base] + fwd.reindex(d.index)
+        lowo, fwd = pd.Series(np.nan, index=d.index), pd.Series(np.nan, index=d.index)
+        for w in weeks:                                                    # each week's test rows are disjoint: fill them in turn
+            lowo = lowo.fillna(correction(d, base, d.week != w, d.week == w))
+            fwd = fwd.fillna(correction(d, base, d.week < w, d.week == w))
+        d[f"{base}+lowo"], d[f"{base}+fwd"] = d[base] + lowo, d[base] + fwd
         x, lo, hi = vs(d, f"{base}+lowo", base)
         print(f"\n{lab} + FTN correction, leave-one-week-out: MAE change {x:+.3f} [{lo:+.3f}, {hi:+.3f}] (n={len(d)}; negative = helps)")
         f = d.dropna(subset=[f"{base}+fwd"])
