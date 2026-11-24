@@ -197,6 +197,9 @@ players, mostly running backs. The hand-built modules 1-4 are in the same range 
   - *This season's* DVOA to date (2026 only, rebuilt from FTN's single-game DVOA, `ml_ftn_inseason`): a correction learned on the misses from the opposing defense's
     and own offense's pass / rush DVOA makes the blend worse (+0.03 MAE) and leaves Sleeper unchanged; their correlation with the misses is within +/-0.13.
     The season-to-date tables (defense vs WR1 / WR2 / TE / RB, DVOA-adjusted fantasy points allowed, line yards) cannot be backtested without weekly snapshots.
+  - DVOA-adjusted fantasy points allowed, tried anyway on 2026 weeks 9-10 against Sleeper's misses (`ftn_fpa_test`, 370 player-games): the week-11 snapshot
+    correlates +0.21 with the misses, but our own raw points allowed with the same as-of date (so also containing those games) correlates +0.23, and the same raw
+    numbers from earlier weeks only correlate -0.02 and make Sleeper worse (+0.06 MAE). The apparent signal is the leak; the opponent adjustment adds nothing visible.
 
 **Other tools**: `ml_ranking` (ordering metrics), `ml_diagnose` (why a player was projected where he was), `winprob` (lineup choice by simulated win probability),
 `backtest_players` / `compare_roster*` (roster-level comparisons with Sleeper).
