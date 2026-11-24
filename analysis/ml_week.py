@@ -4,7 +4,9 @@ For a week that has not been played, the feature table has no rows, so pre-game 
 with the opponent and kickoff date from the schedule and the team's likely QB taken from Sleeper's projected attempts. Every input is then computed exactly as for a
 played game, from earlier games only. Models are trained on 2021-25, as in the backtests.
 
-    uv run python -m analysis.ml_week <username> [week]
+    uv run python -m analysis.ml_week <username> [week] [--ftn-dir PATH | --no-ftn]
+
+FTN's DVOA / DYAR exports are an optional extra input (analysis/ftn.py): used when found in data/ftn/ (or --ftn-dir / FTN_DIR), ignored otherwise.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from analysis import ml_data as MD
+from analysis import ftn, ml_data as MD
 from analysis.ml_model import SL_FEATS, feature_sets, fit_predict, gbm
 from nflfp import attribution as A, data, league, sleeper
 
@@ -100,7 +102,7 @@ def week_rows(week: int, refresh: bool = False, max_age_h: float = 6.0) -> pd.Da
     """Pre-game rows for every projected player of the week with the ensemble's and Sleeper's projections (cached for a few hours)."""
     import time
     from pathlib import Path
-    cache = Path(f".cache/ml_week_{SEASON}_{week}.pkl")
+    cache = Path(f".cache/ml_week_{SEASON}_{week}{ftn.tag()}.pkl")
     if cache.exists() and not refresh and (time.time() - cache.stat().st_mtime) / 3600 < max_age_h:
         return pd.read_pickle(cache)
     dump = sleeper.load_players()
@@ -110,6 +112,8 @@ def week_rows(week: int, refresh: bool = False, max_age_h: float = 6.0) -> pd.Da
     hist = hist[hist.n_hist >= 1].reset_index(drop=True)
     feats = feature_sets(hist)["avail+qb+cal"]
     te = F[F.n_hist >= 1].copy()
+    feats, (hist, te), note = ftn.add(feats, hist, te)                  # optional proprietary inputs: unchanged when not found
+    print(note)
     pr = fit_predict(hist[hist.season.between(2021, 2025)], te, feats)
     for c in pr:
         te[c] = pr[c]
@@ -123,6 +127,7 @@ def week_rows(week: int, refresh: bool = False, max_age_h: float = 6.0) -> pd.Da
 
 if __name__ == "__main__":
     pd.options.display.width = 250
+    sys.argv = ftn.from_argv(sys.argv)
     user = sys.argv[1]
     week = int(sys.argv[2]) if len(sys.argv) > 2 else sleeper.get("state/nfl")["week"]
     uid = sleeper.user_id(user)
@@ -137,6 +142,8 @@ if __name__ == "__main__":
     feats = feature_sets(hist)["avail+qb+cal"]
     miss = [c for c in feats if c not in F.columns]
     assert not miss, f"missing inputs: {miss}"
+    feats, (hist, F), note = ftn.add(feats, hist, F)                    # optional proprietary inputs: unchanged when not found
+    print(note)
     print("inputs:", len(feats), "| rows with at least one earlier game since last season:", int((F.n_hist >= 1).sum()), "of", len(F))
     tr = hist[hist.season.between(2021, 2025)]
     te = F[F.n_hist >= 1].copy()

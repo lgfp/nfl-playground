@@ -242,6 +242,12 @@ model on a roster. `ml_hedge.py` quantifies a hedge against an opponent's stack 
   information about who misses by more (correlation +0.001). `--espn` adds two scenarios to the simulator: ESPN's mean and calibrated width (our distribution shape), and a consensus
   (mean of ESPN, Sleeper and our ensemble, width halfway between ours and ESPN's). Calibration: `uv run python -m analysis.espn_calibration`.
 
+**Optional FTN input (proprietary data).** If you have FTN's season exports (`Premium-All-Years-DVOA-*.xlsx` for team DVOA, `Premium-All-Years-DYAR-*.xlsx` for
+player DYAR/DVOA), put them in `data/ftn/` (git-ignored; never commit them) or point to them with `--ftn-dir PATH` or the `FTN_DIR` environment variable. The black-box
+scripts (`ml_week`, `ml_matchup`, `free_agents`, `ml_dist`) then add last season's numbers as 29 extra inputs (either file alone also works) and print
+`FTN: using ...`; without the files, or with `--no-ftn` / `FTN=off`, they print `FTN: not used` and run exactly as before. A file that cannot be read is skipped the
+same way. Models with and without FTN are cached separately. Measured gain: -0.012 MAE for the blend, mostly running backs and quarterbacks (see the research notes).
+
 **Hand-built vs black box, and the research record.** The hand-built modules 1-4 and the black-box model are both documented above; `analysis/` also holds the tests behind each
 negative result (`ml_scoring_context`, `ml_td_opps`, `ml_vulture`, `ml_td_adjust`, `ml_diagnose`, ...).
 

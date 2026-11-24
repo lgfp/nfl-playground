@@ -11,7 +11,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from analysis import ml_data as MD
+from analysis import ftn, ml_data as MD
 from analysis.ml_matchup import distributions
 from analysis.ml_week import SEASON, week_rows
 from nflfp import sleeper
@@ -20,6 +20,7 @@ warnings.filterwarnings("ignore")
 
 if __name__ == "__main__":
     pd.options.display.width = 230
+    sys.argv = ftn.from_argv(sys.argv)                                  # optional FTN inputs: --ftn-dir PATH / --no-ftn
     user = sys.argv[1]
     week = int(sys.argv[2]) if len(sys.argv) > 2 else sleeper.get("state/nfl")["week"]
     dump = sleeper.load_players()

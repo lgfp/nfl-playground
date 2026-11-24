@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from analysis import ml_data as MD
+from analysis import ftn, ml_data as MD
 from analysis import ml_dist as DI
 from analysis.ml_hedge import nearest_psd, pair_corr, residuals
 from analysis.ml_model import feature_sets
@@ -72,6 +72,7 @@ def legal_lineups(mine: pd.DataFrame):
 
 if __name__ == "__main__":
     pd.options.display.width = 230
+    sys.argv = ftn.from_argv(sys.argv)                                  # optional FTN inputs: --ftn-dir PATH / --no-ftn
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     user = args[0]
     week = int(args[1]) if len(args) > 1 else sleeper.get("state/nfl")["week"]

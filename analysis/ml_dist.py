@@ -21,6 +21,7 @@ Versions (compared on 2026 by `python -m analysis.ml_dist`):
 """
 from __future__ import annotations
 
+import sys
 import warnings
 from pathlib import Path
 
@@ -30,7 +31,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 
 from scipy.stats import nbinom, norm, poisson
 
-from analysis import ml_data as MD
+from analysis import ftn, ml_data as MD
 from analysis.ml_model import POOL_MIN, feature_sets, fit_predict
 from nflfp import data
 from nflfp import tds as T
@@ -51,8 +52,9 @@ VERSION = "components"        # used by the matchup simulator: TD variance is ex
 
 def projections(F: pd.DataFrame, feats: list[str]) -> pd.DataFrame:
     """Ensemble projection for every row, never from a model that saw that row's season (cached)."""
-    if PROJ.exists():
-        p = pd.read_pickle(PROJ)
+    path = PROJ.with_name(f"{PROJ.stem}{ftn.tag()}.pkl")                 # models with and without FTN inputs are cached apart
+    if path.exists():
+        p = pd.read_pickle(path)
         if len(p) == len(F):
             return p
     parts = []
@@ -64,7 +66,7 @@ def projections(F: pd.DataFrame, feats: list[str]) -> pd.DataFrame:
     te = F[F.season > TRAIN[1]]
     parts.append(te[["player_id", "season", "week"]].assign(ens=fit_predict(F[F.season.isin(seasons)], te, feats)["ensemble"].to_numpy()))
     p = pd.concat(parts, ignore_index=True)
-    p.to_pickle(PROJ)
+    p.to_pickle(path)
     return p
 
 
@@ -98,6 +100,7 @@ def prepare(rows: pd.DataFrame | None = None):
     A = pd.read_pickle(MD.OUT)
     F = A[A.n_hist >= 1].reset_index(drop=True)
     feats = feature_sets(F)["avail+qb+cal"]
+    feats, (F,), _ = ftn.add(feats, F)                                   # same optional FTN inputs as the live model (analysis.ml_week)
     keys = ["player_id", "season", "week"]
     base = A[keys + ["pts", "sl"]]
     if rows is not None:
@@ -247,6 +250,7 @@ def pinball(y, pred, q):
 
 if __name__ == "__main__":
     pd.options.display.width = 230
+    sys.argv = ftn.from_argv(sys.argv)
     X, _ = prepare()
     tr = X[X.season.between(*TRAIN) & X.sl.notna()]
     te = X[(X.season == 2026) & (X.sl >= POOL_MIN)].copy()
