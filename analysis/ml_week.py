@@ -36,6 +36,34 @@ def map_to_nflverse(vol: pd.DataFrame, known: pd.DataFrame, dump: dict) -> pd.Se
     return pid
 
 
+def fallback_qbs(games: pd.DataFrame, v: pd.DataFrame, vol: pd.DataFrame, d: pd.DataFrame, dump: dict, season: int = SEASON) -> pd.DataFrame:
+    """Rows for teams that would otherwise have no quarterback: Sleeper projects none who is available (its projected starter was ruled out and no
+    backup is projected). Without one, every teammate looks like he has a brand-new QB. The stand-in is the team's most recent main passer (this season
+    or last) who is not ruled out, given the ruled-out QB's projected attempts (else the team's average over its last 3 games).
+    games: team, opp, gameday of the week; v: the available, mapped rows so far; vol: the full projection feed."""
+    avail = vol[(vol.position == "QB") & (vol.attempts > 0) & ~vol.injury_status.isin(sleeper.OUT_STATUSES)]
+    have = set(v[(v.position == "QB") & (v.attempts > 0)].team) | set(avail.team)     # incl. projected QBs with no history yet (a debuting rookie)
+    status = {}
+    for sid, p in dump.items():
+        if p.get("position") == "QB":
+            status[(sleeper.norm(f'{p.get("first_name", "")} {p.get("last_name", "")}'), sleeper.TEAM.get(p.get("team"), p.get("team")))] = (sid, p.get("injury_status"))
+    x = d[d.season.isin([season - 1, season]) & (d.pass_att > 0)].sort_values(["season", "week", "pass_att"])
+    starters = x.groupby(["season", "week", "team"]).tail(1).sort_values(["season", "week"], ascending=False)
+    rows = []
+    for g in games[~games.team.isin(have)].itertuples():
+        for r in starters[starters.team == g.team].itertuples():
+            sid, st = status.get((sleeper.norm(r.player_display_name), g.team), (None, None))
+            if st in sleeper.OUT_STATUSES:
+                continue
+            out_att = vol[(vol.team == g.team) & (vol.position == "QB")].attempts
+            att = float(out_att.max()) if len(out_att) and out_att.max() > 0 else float(starters[starters.team == g.team].pass_att.head(3).mean())
+            rows.append(dict(sleeper_id=sid, name=r.player_display_name, position="QB", team=g.team, injury_status=st, attempts=att,
+                             player_id=r.player_id, opp=g.opp, gameday=g.gameday))
+            print(f"{g.team}: Sleeper projects no available QB; using {r.player_display_name} (main passer in week {r.week} of {r.season}), {att:.0f} attempts")
+            break
+    return pd.DataFrame(rows)
+
+
 def pregame_rows(d: pd.DataFrame, week: int, vol: pd.DataFrame, dump: dict):
     """Placeholder rows (all stats zero) for the players expected to play in `week`."""
     sched = pd.read_csv(".cache/games.csv", low_memory=False)
@@ -48,6 +76,9 @@ def pregame_rows(d: pd.DataFrame, week: int, vol: pd.DataFrame, dump: dict):
     v = v.merge(g, on="team", how="inner")                              # teams on a bye drop out
     unmapped = v[v.player_id.isna() & ~v.sleeper_id.isin(out_ids)]
     v = v[v.player_id.notna() & ~v.sleeper_id.isin(out_ids)].drop_duplicates("player_id")
+    fb = fallback_qbs(g, v, vol, d, dump)
+    if len(fb):
+        v = pd.concat([v, fb], ignore_index=True).drop_duplicates("player_id", keep="first")
     ph = pd.DataFrame(0.0, index=range(len(v)), columns=d.columns)
     ph["player_id"], ph["player_display_name"], ph["position"] = v.player_id.to_numpy(), v.name.to_numpy(), v.position.to_numpy()
     ph["team"], ph["opp"], ph["season"], ph["week"] = v.team.to_numpy(), v.opp.to_numpy(), SEASON, week
